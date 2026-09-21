@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="areaGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00b4d8" stop-opacity="0.25" />
+      <stop offset="100%" stop-color="#0077b6" stop-opacity="0.1" />
+    </linearGradient>
+  </defs>
+  <!-- Movable Area Floor Plate -->
+  <rect x="8" y="8" width="112" height="112" rx="10" fill="url(#areaGrad)" stroke="#48cae4" stroke-width="2.5" stroke-dasharray="8 6"/>
+  <!-- Corner Tech Accents -->
+  <path d="M 16 28 L 16 16 L 28 16" fill="none" stroke="#90e0ef" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 112 28 L 112 16 L 100 16" fill="none" stroke="#90e0ef" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 16 100 L 16 112 L 28 112" fill="none" stroke="#90e0ef" stroke-width="3" stroke-linecap="round"/>
+  <path d="M 112 100 L 112 112 L 100 112" fill="none" stroke="#90e0ef" stroke-width="3" stroke-linecap="round"/>
+  <!-- Center Move Guide Cross/Arrows -->
+  <circle cx="64" cy="64" r="22" fill="none" stroke="#00b4d8" stroke-width="2" stroke-opacity="0.5"/>
+  <polygon points="64,48 58,56 70,56" fill="#caf0f8"/>
+  <polygon points="64,80 58,72 70,72" fill="#caf0f8"/>
+  <polygon points="48,64 56,58 56,70" fill="#caf0f8"/>
+  <polygon points="80,64 72,58 72,70" fill="#caf0f8"/>
+</svg>

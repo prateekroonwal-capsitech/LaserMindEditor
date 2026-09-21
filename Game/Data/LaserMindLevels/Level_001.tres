@@ -1,0 +1,226 @@
+[gd_resource type="Resource" script_class="LaserLevelData" format=3 uid="uid://b5y4qdk4fjftl"]
+
+[ext_resource type="Script" uid="uid://f4kq1832bhoq" path="res://addons/LevelEditorPlugin/data/laser_level_data.gd" id="1_qdb8q"]
+[ext_resource type="Script" uid="uid://dagkqrbmyueu7" path="res://addons/LevelEditorPlugin/data/laser_stage_data.gd" id="2_lqunb"]
+[ext_resource type="Script" uid="uid://c52lyaofm5ytm" path="res://addons/LevelEditorPlugin/data/laser_object_data.gd" id="3_rvopn"]
+
+[sub_resource type="Resource" id="Resource_qdb8q"]
+script = ExtResource("3_rvopn")
+id = "laser_0668"
+type = 0
+color = Color(1, 0, 0, 1)
+
+[sub_resource type="Resource" id="Resource_akk5v"]
+script = ExtResource("3_rvopn")
+id = "xgate_4305"
+type = 15
+grid_pos = Vector2i(0, 4)
+color = Color(1, 0, 0, 1)
+
+[sub_resource type="Resource" id="Resource_lqunb"]
+script = ExtResource("3_rvopn")
+id = "rmir_0040"
+type = 3
+grid_pos = Vector2i(4, 0)
+rotation_deg = 270
+color = Color(1, 0, 0, 1)
+rotatable = true
+
+[sub_resource type="Resource" id="Resource_rvopn"]
+script = ExtResource("3_rvopn")
+id = "rmir_7393"
+type = 3
+grid_pos = Vector2i(4, 4)
+color = Color(1, 0, 0, 1)
+rotatable = true
+
+[sub_resource type="Resource" id="Resource_bxig8"]
+script = ExtResource("3_rvopn")
+id = "marea_8938"
+type = 4
+grid_pos = Vector2i(1, 1)
+color = Color(1, 0, 0, 1)
+
+[sub_resource type="Resource" id="Resource_qtqw8"]
+script = ExtResource("3_rvopn")
+id = "marea_7903"
+type = 4
+grid_pos = Vector2i(1, 2)
+color = Color(1, 0, 0, 1)
+
+[sub_resource type="Resource" id="Resource_pkkp5"]
+script = ExtResource("3_rvopn")
+id = "marea_7443"
+type = 4
+grid_pos = Vector2i(2, 2)
+color = Color(1, 0, 0, 1)
+
+[sub_resource type="Resource" id="Resource_giv2s"]
+script = ExtResource("3_rvopn")
+id = "marea_9459"
+type = 4
+grid_pos = Vector2i(2, 1)
+color = Color(1, 0, 0, 1)
+
+[sub_resource type="Resource" id="Resource_bmu8x"]
+script = ExtResource("2_lqunb")
+grid_width = 5
+grid_height = 5
+time_limit = 15.0
+objects = Array[ExtResource("3_rvopn")]([SubResource("Resource_qdb8q"), SubResource("Resource_akk5v"), SubResource("Resource_lqunb"), SubResource("Resource_rvopn"), SubResource("Resource_bxig8"), SubResource("Resource_qtqw8"), SubResource("Resource_pkkp5"), SubResource("Resource_giv2s")])
+
+[sub_resource type="Resource" id="Resource_3e577"]
+script = ExtResource("3_rvopn")
+id = "gate_7398"
+type = 11
+color = Color(1, 0, 0, 1)
+
+[sub_resource type="Resource" id="Resource_f50j8"]
+script = ExtResource("3_rvopn")
+id = "xgate_5541"
+type = 15
+grid_pos = Vector2i(4, 4)
+color = Color(1, 0, 0, 1)
+
+[sub_resource type="Resource" id="Resource_uxk28"]
+script = ExtResource("3_rvopn")
+id = "rmir_5578"
+type = 3
+grid_pos = Vector2i(4, 0)
+rotation_deg = 45
+color = Color(1, 0, 0, 1)
+rotatable = true
+
+[sub_resource type="Resource" id="Resource_fba74"]
+script = ExtResource("2_lqunb")
+stage_index = 2
+grid_width = 5
+grid_height = 5
+time_limit = 15.0
+objects = Array[ExtResource("3_rvopn")]([SubResource("Resource_3e577"), SubResource("Resource_f50j8"), SubResource("Resource_uxk28")])
+stage_transition_direction = 1
+
+[sub_resource type="Resource" id="Resource_uqhes"]
+script = ExtResource("3_rvopn")
+id = "gate_7359"
+type = 11
+grid_pos = Vector2i(0, 4)
+color = Color(1, 0, 0, 1)
+
+[sub_resource type="Resource" id="Resource_qvm2o"]
+script = ExtResource("3_rvopn")
+id = "xgate_7768"
+type = 15
+grid_pos = Vector2i(4, 0)
+color = Color(1, 0, 0, 1)
+
+[sub_resource type="Resource" id="Resource_a6map"]
+script = ExtResource("3_rvopn")
+id = "rmir_1642"
+type = 3
+rotation_deg = 45
+color = Color(1, 0, 0, 1)
+rotatable = true
+
+[sub_resource type="Resource" id="Resource_grm3h"]
+script = ExtResource("3_rvopn")
+id = "rmir_3982"
+type = 3
+grid_pos = Vector2i(4, 4)
+rotation_deg = 45
+color = Color(1, 0, 0, 1)
+rotatable = true
+
+[sub_resource type="Resource" id="Resource_d2hnd"]
+script = ExtResource("2_lqunb")
+stage_index = 3
+grid_width = 5
+grid_height = 5
+time_limit = 15.0
+objects = Array[ExtResource("3_rvopn")]([SubResource("Resource_uqhes"), SubResource("Resource_qvm2o"), SubResource("Resource_a6map"), SubResource("Resource_grm3h")])
+stage_transition_direction = 2
+
+[sub_resource type="Resource" id="Resource_k3xwo"]
+script = ExtResource("3_rvopn")
+id = "gate_4750"
+type = 11
+color = Color(1, 0, 0, 1)
+
+[sub_resource type="Resource" id="Resource_goag4"]
+script = ExtResource("3_rvopn")
+id = "xgate_3349"
+type = 15
+grid_pos = Vector2i(4, 4)
+color = Color(1, 0, 0, 1)
+
+[sub_resource type="Resource" id="Resource_7pbvy"]
+script = ExtResource("3_rvopn")
+id = "rmir_4391"
+type = 3
+grid_pos = Vector2i(0, 4)
+rotation_deg = 45
+color = Color(1, 0, 0, 1)
+rotatable = true
+
+[sub_resource type="Resource" id="Resource_5bl3u"]
+script = ExtResource("3_rvopn")
+id = "rmir_7797"
+type = 3
+grid_pos = Vector2i(4, 0)
+rotation_deg = 45
+color = Color(1, 0, 0, 1)
+rotatable = true
+
+[sub_resource type="Resource" id="Resource_o7bh1"]
+script = ExtResource("2_lqunb")
+stage_index = 4
+grid_width = 5
+grid_height = 5
+time_limit = 15.0
+objects = Array[ExtResource("3_rvopn")]([SubResource("Resource_k3xwo"), SubResource("Resource_goag4"), SubResource("Resource_7pbvy"), SubResource("Resource_5bl3u")])
+stage_transition_direction = 3
+
+[sub_resource type="Resource" id="Resource_fp0n3"]
+script = ExtResource("3_rvopn")
+id = "gate_0568"
+type = 11
+grid_pos = Vector2i(0, 4)
+color = Color(1, 0, 0, 1)
+
+[sub_resource type="Resource" id="Resource_7775g"]
+script = ExtResource("3_rvopn")
+id = "xgate_3836"
+type = 15
+grid_pos = Vector2i(4, 0)
+color = Color(1, 0, 0, 1)
+
+[sub_resource type="Resource" id="Resource_75w37"]
+script = ExtResource("3_rvopn")
+id = "rmir_0645"
+type = 3
+grid_pos = Vector2i(4, 4)
+rotation_deg = 45
+color = Color(1, 0, 0, 1)
+rotatable = true
+
+[sub_resource type="Resource" id="Resource_ov4tk"]
+script = ExtResource("3_rvopn")
+id = "rmir_5676"
+type = 3
+rotation_deg = 45
+color = Color(1, 0, 0, 1)
+rotatable = true
+
+[sub_resource type="Resource" id="Resource_g3m4f"]
+script = ExtResource("2_lqunb")
+stage_index = 5
+grid_width = 5
+grid_height = 5
+time_limit = 15.0
+objects = Array[ExtResource("3_rvopn")]([SubResource("Resource_fp0n3"), SubResource("Resource_7775g"), SubResource("Resource_75w37"), SubResource("Resource_ov4tk")])
+stage_transition_direction = 4
+
+[resource]
+script = ExtResource("1_qdb8q")
+stages = Array[ExtResource("2_lqunb")]([SubResource("Resource_bmu8x"), SubResource("Resource_fba74"), SubResource("Resource_d2hnd"), SubResource("Resource_o7bh1"), SubResource("Resource_g3m4f")])
+mechanic_tags = PackedStringArray()

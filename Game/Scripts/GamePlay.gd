@@ -1,0 +1,385 @@
+extends Node2D
+class_name GamePlay
+
+const BoardLayoutManager = preload("res://Game/Scripts/board_layout_manager.gd")
+const StageTransitioner = preload("res://Game/Scripts/stage_transitioner.gd")
+const GameInputController = preload("res://Game/Scripts/game_input_controller.gd")
+const ObjectSpawner = preload("res://Game/Scripts/object_spawner.gd")
+const GridRenderer = preload("res://Game/Scripts/grid_renderer.gd")
+const BeamRenderer = preload("res://Game/Scripts/beam_renderer.gd")
+const ProceduralLaserObject = preload("res://Game/Scripts/procedural_object.gd")
+
+@export_group("Level Selection")
+@export var level_number: int = 1
+@export var current_stage_idx: int = 1
+
+@export_group("Grid Display Settings")
+@export var cell_size: Vector2 = Vector2(64, 64)
+@export var grid_origin: Vector2 = Vector2(100, 100)
+
+@export_group("Object Scenes (.tscn Prefabs)")
+@export var laser_scene: PackedScene
+@export var fixed_mirror_scene: PackedScene
+@export var movable_mirror_scene: PackedScene
+@export var rotatable_mirror_scene: PackedScene
+@export var movable_area_scene: PackedScene
+@export var rock_scene: PackedScene
+@export var ice_scene: PackedScene
+@export var splitter_scene: PackedScene
+@export var color_glass_scene: PackedScene
+@export var color_wall_scene: PackedScene
+@export var entry_gate_scene: PackedScene
+@export var exit_gate_scene: PackedScene
+@export var switch_scene: PackedScene
+@export var gate_switch_scene: PackedScene
+@export var custom_named_scenes: Dictionary[String, PackedScene] = {}
+
+@export_group("Playtest Mode Visuals")
+@export var use_editor_visuals_in_playtest: bool = true
+
+@onready var background: Sprite2D = $Background
+@onready var board: NinePatchRect = $Board
+@onready var grid_renderer: GridRenderer = $GridLayer
+@onready var beam_renderer: BeamRenderer = $BeamLayer
+@onready var objects_container: Node2D = $LevelObjects
+
+var current_stage: LaserStageData = null
+var level_data: LaserLevelData = null
+var simulation_res: Dictionary = {}
+var spawned_nodes: Dictionary = {}
+var stage_cleared: bool = false
+var is_playtest_mode: bool = false
+
+var _transitioner: StageTransitioner = StageTransitioner.new()
+var _spawner: ObjectSpawner = ObjectSpawner.new()
+var _input_controller: GameInputController = GameInputController.new()
+var _clear_flash: ColorRect = null
+
+func _ready() -> void:
+	_init_components()
+
+	get_tree().root.size_changed.connect(_on_viewport_resized)
+	_on_viewport_resized()
+
+	if _check_playtest_session():
+		return
+
+	if load_level_by_number(level_number, current_stage_idx):
+		return
+
+	var all_ids := LevelMigration.get_all_level_ids()
+	if not all_ids.is_empty():
+		push_warning("GamePlay: Level_%03d not found, loading Level_%03d instead." % [level_number, all_ids[0]])
+		load_level_by_number(all_ids[0], 1)
+	else:
+		push_error("GamePlay: No level files found in res://Game/Data/LaserMindLevels/!")
+
+func _init_components() -> void:
+	_setup_clear_flash()
+
+	var prefab_map: Dictionary = {
+		LaserObjectData.ObjectType.LASER_SOURCE: laser_scene,
+		LaserObjectData.ObjectType.FIXED_MIRROR: fixed_mirror_scene if fixed_mirror_scene != null else movable_mirror_scene,
+		LaserObjectData.ObjectType.MOVABLE_MIRROR: movable_mirror_scene if movable_mirror_scene != null else fixed_mirror_scene,
+		LaserObjectData.ObjectType.ROTATABLE_MIRROR: rotatable_mirror_scene if rotatable_mirror_scene != null else fixed_mirror_scene,
+		LaserObjectData.ObjectType.MOVABLE_AREA: movable_area_scene,
+		LaserObjectData.ObjectType.ROCK: rock_scene,
+		LaserObjectData.ObjectType.ICE: ice_scene,
+		LaserObjectData.ObjectType.SPLITTER: splitter_scene,
+		LaserObjectData.ObjectType.COLOR_GLASS: color_glass_scene,
+		LaserObjectData.ObjectType.COLOR_WALL: color_wall_scene,
+		LaserObjectData.ObjectType.GATE: entry_gate_scene if entry_gate_scene != null else (load("res://Game/Objects/Scenes/EntryGate.tscn") if ResourceLoader.exists("res://Game/Objects/Scenes/EntryGate.tscn") else null),
+		LaserObjectData.ObjectType.EXIT_GATE: exit_gate_scene if exit_gate_scene != null else (load("res://Game/Objects/Scenes/ExitGate.tscn") if ResourceLoader.exists("res://Game/Objects/Scenes/ExitGate.tscn") else null),
+		LaserObjectData.ObjectType.SWITCH: switch_scene,
+		LaserObjectData.ObjectType.GATE_SWITCH: gate_switch_scene if gate_switch_scene != null else entry_gate_scene,
+	}
+	_spawner.set_prefabs(prefab_map)
+	_spawner.custom_named_scenes = custom_named_scenes
+	_spawner.sync_custom_scenes_registry()
+
+	_input_controller.request_quit_game.connect(func(): get_tree().quit())
+	_input_controller.request_restart_stage.connect(func(): load_stage(current_stage_idx))
+	_input_controller.request_load_stage.connect(func(st_num: int): load_stage(st_num))
+	_input_controller.request_toggle_visuals.connect(_toggle_playtest_visuals)
+	_input_controller.request_next_stage.connect(_on_next_stage_requested)
+	_input_controller.object_rotated.connect(_on_object_modified)
+	_input_controller.object_dragged.connect(_on_object_modified)
+	_input_controller.drag_ended.connect(func(): recalculate_simulation())
+
+func _on_viewport_resized() -> void:
+	var vp_sz: Vector2 = get_viewport_rect().size
+	BoardLayoutManager.scale_background_to_viewport(background, vp_sz)
+
+	if current_stage != null:
+		_auto_center_grid(current_stage)
+		_reposition_spawned_objects()
+		_update_renderers()
+
+func _unhandled_input(event: InputEvent) -> void:
+	_input_controller.handle_input(
+		event,
+		current_stage,
+		grid_origin,
+		cell_size,
+		is_playtest_mode,
+		_transitioner.is_active(),
+		stage_cleared
+	)
+
+func _check_playtest_session() -> bool:
+	var session_path := "user://laser_mind_playtest.json"
+	if not FileAccess.file_exists(session_path):
+		return false
+
+	var file := FileAccess.open(session_path, FileAccess.READ)
+	if file == null:
+		return false
+
+	var text := file.get_as_text()
+	file.close()
+	DirAccess.remove_absolute(session_path)
+
+	var json := JSON.new()
+	if json.parse(text) != OK or not (json.data is Dictionary):
+		return false
+
+	var dict: Dictionary = json.data
+	if not dict.get("playtest_active", false):
+		return false
+
+	is_playtest_mode = true
+	var p_level_id: int = int(dict.get("level_id", 1))
+	var p_stage_idx: int = int(dict.get("stage_idx", 1))
+	load_level_by_number(p_level_id, p_stage_idx)
+	return true
+
+func load_level_by_number(p_level_num: int, p_stage_num: int = 1) -> bool:
+	level_number = max(1, p_level_num)
+	var loaded: LaserLevelData = LevelMigration.load_laser_level(level_number)
+	if loaded != null:
+		level_data = loaded
+		load_stage(p_stage_num)
+		return true
+	else:
+		push_error("GamePlay: Failed to load valid LaserLevelData for Level %d" % level_number)
+		return false
+
+func load_stage(stage_num: int) -> void:
+	if level_data == null:
+		push_error("GamePlay: No LaserLevelData assigned!")
+		return
+
+	var max_stages: int = level_data.get_stage_count() if level_data != null else 1
+	current_stage_idx = clamp(stage_num, 1, max_stages)
+	current_stage = level_data.get_stage(current_stage_idx)
+	if current_stage == null:
+		push_error("GamePlay: Stage %d not found in level!" % current_stage_idx)
+		return
+
+	stage_cleared = false
+	clear_current_stage()
+	_auto_center_grid(current_stage)
+
+	print("--- Loaded Level %d | Stage %d (Grid: %dx%d) ---" % [
+		level_data.level_id, current_stage_idx, current_stage.grid_width, current_stage.grid_height
+	])
+
+	# Spawn MovableArea nodes on background layer (z = -1)
+	for obj in current_stage.objects:
+		if obj != null and obj.enabled and obj.type == LaserObjectData.ObjectType.MOVABLE_AREA:
+			_spawn_and_register(obj, -1)
+
+	# Spawn active objects on main layer (z = 0)
+	for obj in current_stage.objects:
+		if obj != null and obj.enabled and obj.type != LaserObjectData.ObjectType.MOVABLE_AREA:
+			_spawn_and_register(obj, 0)
+
+	recalculate_simulation(true)
+	_redraw_grid()
+
+func _spawn_and_register(obj: LaserObjectData, z_idx: int) -> void:
+	var node := _spawn_object(obj)
+	if node is CanvasItem:
+		(node as CanvasItem).z_index = z_idx
+
+func _spawn_object(obj_data: LaserObjectData) -> Node:
+	var use_proc := (is_playtest_mode and use_editor_visuals_in_playtest)
+	var use_p := (use_proc and obj_data.type != LaserObjectData.ObjectType.CUSTOM)
+	_spawner.custom_named_scenes = custom_named_scenes
+	var instance := _spawner.spawn_object(obj_data, grid_origin, cell_size, use_p, grid_to_world)
+	if objects_container != null:
+		objects_container.add_child(instance)
+	else:
+		add_child(instance)
+	spawned_nodes[obj_data.id] = instance
+	return instance
+
+func _get_scene_for_object(obj_data: LaserObjectData) -> PackedScene:
+	_spawner.custom_named_scenes = custom_named_scenes
+	return _spawner.get_scene_for_object(obj_data)
+
+func recalculate_simulation(animate_shoot: bool = false) -> void:
+	if current_stage == null:
+		return
+
+	simulation_res = LaserSimulation.simulate_stage(current_stage)
+	var all_cleared = simulation_res.get("all_goals_satisfied", false)
+
+	if all_cleared and not stage_cleared:
+		stage_cleared = true
+		_on_stage_cleared()
+
+	_redraw_beams(animate_shoot)
+
+	for id in spawned_nodes:
+		var node = spawned_nodes[id]
+		if is_instance_valid(node) and node.has_method("on_simulation_updated"):
+			node.on_simulation_updated(simulation_res)
+
+func _on_stage_cleared() -> void:
+	print("🎉 STAGE %d CLEARED! Transitioning to next stage..." % current_stage_idx)
+	_play_clear_flash()
+	var tw = create_tween()
+	tw.tween_interval(0.5)
+	tw.tween_callback(func():
+		if stage_cleared and not _transitioner.is_active():
+			next_stage()
+	)
+
+func _setup_clear_flash() -> void:
+	if _clear_flash != null:
+		return
+	_clear_flash = ColorRect.new()
+	_clear_flash.color = Color(0.3, 1.0, 0.4, 0.0)
+	_clear_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+	_clear_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	_clear_flash.z_index = 100
+	add_child(_clear_flash)
+
+func _play_clear_flash() -> void:
+	if _clear_flash == null or not is_inside_tree():
+		return
+	_clear_flash.color = Color(0.3, 1.0, 0.4, 0.0)
+	var tw = create_tween()
+	tw.tween_property(_clear_flash, "color", Color(0.3, 1.0, 0.4, 0.55), 0.15)
+	tw.tween_property(_clear_flash, "color", Color(0.3, 1.0, 0.4, 0.0), 0.5)
+
+func _on_next_stage_requested() -> void:
+	if stage_cleared:
+		next_stage()
+
+func next_stage() -> void:
+	var max_stages: int = level_data.get_stage_count() if level_data != null else 1
+	if current_stage_idx < max_stages:
+		_transition_to_stage(current_stage_idx + 1)
+	else:
+		next_level()
+
+func _transition_to_stage(target_stage_idx: int) -> void:
+	if _transitioner.is_active() or level_data == null or not is_inside_tree():
+		return
+
+	var next_st: LaserStageData = level_data.get_stage(target_stage_idx)
+	if next_st == null:
+		return
+
+	var target_origin: Vector2
+	if BoardLayoutManager.stage_has_custom_position(next_st):
+		target_origin = next_st.stage_screen_position
+	else:
+		var layout = BoardLayoutManager.compute_auto_center(next_st, get_viewport_rect().size, is_playtest_mode)
+		target_origin = layout["grid_origin"]
+
+	var vp_size := get_viewport_rect().size
+	var slide_dir := next_st.stage_transition_direction
+
+	_transitioner.transition(
+		self,
+		slide_dir,
+		grid_origin,
+		target_origin,
+		vp_size,
+		func(new_origin: Vector2):
+			grid_origin = new_origin
+			_apply_board_layout()
+			_reposition_spawned_objects()
+			_update_renderers(),
+		func():
+			load_stage(target_stage_idx),
+		func():
+			_apply_board_layout()
+			_reposition_spawned_objects()
+			_update_renderers()
+	)
+
+func next_level() -> void:
+	if not load_level_by_number(level_number + 1, 1):
+		print("🏆 All levels cleared! Restarting from Level 1...")
+		load_level_by_number(1, 1)
+
+func restart_level() -> void:
+	load_stage(1)
+
+func _auto_center_grid(stage: LaserStageData) -> void:
+	if not is_inside_tree() or stage == null:
+		return
+
+	var layout = BoardLayoutManager.compute_auto_center(stage, get_viewport_rect().size, is_playtest_mode)
+	cell_size = layout["cell_size"]
+
+	if BoardLayoutManager.stage_has_custom_position(stage):
+		grid_origin = stage.stage_screen_position
+	else:
+		grid_origin = layout["grid_origin"]
+
+	_apply_board_layout()
+
+func _apply_board_layout() -> void:
+	if current_stage == null or board == null:
+		return
+	var rect := BoardLayoutManager.compute_board_rect(grid_origin, cell_size, current_stage.grid_width, current_stage.grid_height)
+	board.position = rect.position
+	board.size = rect.size
+
+func _reposition_spawned_objects() -> void:
+	if current_stage == null:
+		return
+	for obj in current_stage.objects:
+		if obj != null and spawned_nodes.has(obj.id):
+			_spawner.update_node_transform(spawned_nodes[obj.id], obj, grid_origin, cell_size)
+
+func _on_object_modified(obj: LaserObjectData) -> void:
+	if spawned_nodes.has(obj.id):
+		_spawner.update_node_transform(spawned_nodes[obj.id], obj, grid_origin, cell_size)
+	recalculate_simulation()
+
+func _toggle_playtest_visuals() -> void:
+	if is_playtest_mode:
+		use_editor_visuals_in_playtest = not use_editor_visuals_in_playtest
+		load_stage(current_stage_idx)
+
+func _update_renderers() -> void:
+	_redraw_grid()
+	_redraw_beams()
+
+func _redraw_grid() -> void:
+	if grid_renderer != null:
+		grid_renderer.update_grid(current_stage, grid_origin, cell_size)
+
+func _redraw_beams(animate_shoot: bool = false) -> void:
+	if beam_renderer != null:
+		beam_renderer.update_beams(simulation_res.get("segments", []), grid_origin, cell_size, animate_shoot)
+
+func grid_to_world(grid_pos: Vector2i) -> Vector2:
+	return BoardLayoutManager.grid_to_world(grid_pos, grid_origin, cell_size)
+
+
+func world_to_grid(world_pos: Vector2) -> Vector2i:
+	return BoardLayoutManager.world_to_grid(world_pos, grid_origin, cell_size)
+
+func clear_current_stage() -> void:
+	for id in spawned_nodes.keys():
+		var node = spawned_nodes[id]
+		if is_instance_valid(node):
+			node.queue_free()
+	spawned_nodes.clear()

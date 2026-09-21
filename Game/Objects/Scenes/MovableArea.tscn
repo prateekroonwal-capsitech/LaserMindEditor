@@ -1,0 +1,12 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://Game/Objects/Scripts/MovableArea.gd" id="1_marea"]
+[ext_resource type="Texture2D" path="res://Game/Assets/Sprites/MovableArea.svg" id="2_tex"]
+
+[node name="MovableArea" type="Node2D"]
+z_index = -1
+script = ExtResource("1_marea")
+
+[node name="Sprite2D" type="Sprite2D" parent="."]
+scale = Vector2(0.5, 0.5)
+texture = ExtResource("2_tex")

@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="mirrorGlass" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="30%" stop-color="#d6f0ff" />
+      <stop offset="70%" stop-color="#70b5e8" />
+      <stop offset="100%" stop-color="#3a82bf" />
+    </linearGradient>
+    <linearGradient id="mountGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#4e5564" />
+      <stop offset="100%" stop-color="#23272e" />
+    </linearGradient>
+  </defs>
+  <!-- Fixed metal mounting bracket -->
+  <rect x="16" y="16" width="96" height="96" rx="16" fill="url(#mountGrad)" stroke="#687285" stroke-width="4"/>
+  <!-- Corner anchor screws -->
+  <circle cx="28" cy="28" r="5" fill="#8d99ae"/>
+  <circle cx="100" cy="28" r="5" fill="#8d99ae"/>
+  <circle cx="28" cy="100" r="5" fill="#8d99ae"/>
+  <circle cx="100" cy="100" r="5" fill="#8d99ae"/>
+  <!-- Inner bevel slot -->
+  <rect x="24" y="24" width="80" height="80" rx="10" fill="#14171d"/>
+  <!-- Diagonal 45-degree heavy mirror silver back -->
+  <line x1="26" y1="26" x2="102" y2="102" stroke="#2a3342" stroke-width="18" stroke-linecap="round"/>
+  <!-- Diagonal mirror glass -->
+  <line x1="26" y1="26" x2="102" y2="102" stroke="url(#mirrorGlass)" stroke-width="10" stroke-linecap="round"/>
+  <!-- Mirror shine reflection highlight -->
+  <line x1="36" y1="36" x2="92" y2="92" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+</svg>

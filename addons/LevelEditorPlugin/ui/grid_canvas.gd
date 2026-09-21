@@ -1,0 +1,840 @@
+@tool
+extends Control
+class_name GridCanvas
+
+signal cell_clicked(cell: Vector2i, button_idx: int)
+signal object_selected(object: LaserObjectData)
+signal selection_changed(selected_objects: Array[LaserObjectData])
+signal object_modified(object: LaserObjectData)
+signal stage_dirty_needed
+signal stage_activated(stage_index: int)
+
+enum ToolMode {
+	SELECT,
+	PAINT,
+	MOVE,
+	ROTATE,
+	ERASE
+}
+
+const STAGE_GAP_CELLS: int = 4
+
+var current_level: LaserLevelData = null
+var stages: Array[LaserStageData] = []
+var current_stage: LaserStageData = null
+var current_stage_idx: int = 1
+var is_side_by_side: bool = true
+
+var simulation_results: Dictionary = {}
+var simulation_result: Dictionary = {}
+var active_stage_transitions: Dictionary = {}
+var current_tool: ToolMode = ToolMode.SELECT
+var active_palette_type: LaserObjectData.ObjectType = LaserObjectData.ObjectType.FIXED_MIRROR
+var active_palette_rot: int = 0
+var active_palette_color: Color = Color.RED
+var active_palette_custom_data: Dictionary = {}
+
+var zoom_level: float = 1.0
+var pan_offset: Vector2 = Vector2(100, 80)
+var cell_size: float = 48.0
+var show_grid_coords: bool = true
+var show_laser_preview: bool = true
+
+var is_panning: bool = false
+var pan_start_mouse: Vector2 = Vector2.ZERO
+var pan_start_offset: Vector2 = Vector2.ZERO
+var hovered_stage_idx: int = -1
+var hovered_cell: Vector2i = Vector2i(-1, -1)
+var selected_objects: Array[LaserObjectData] = []
+var drag_object: LaserObjectData = null
+var drag_start_cell: Vector2i = Vector2i.ZERO
+var drag_start_snapshot: LaserStageData = null
+var is_dragging_object: bool = false
+var is_box_selecting: bool = false
+var box_select_start: Vector2 = Vector2.ZERO
+var box_select_current: Vector2 = Vector2.ZERO
+var undo_manager: LevelEditorUndoManager = null
+
+func _init() -> void:
+	clip_contents = true
+	focus_mode = Control.FOCUS_ALL
+	resized.connect(func(): queue_redraw())
+
+func set_level(level: LaserLevelData, active_idx: int = 1) -> void:
+	current_level = level
+	if current_level != null:
+		current_level.ensure_stages()
+		stages = current_level.stages
+	else:
+		stages = []
+	current_stage_idx = active_idx
+	current_stage = get_stage_by_index(active_idx)
+	selected_objects.clear()
+	selection_changed.emit(selected_objects)
+	recalculate_simulation()
+	queue_redraw()
+
+func set_stage(stage: LaserStageData) -> void:
+	current_stage = stage
+	if stage != null:
+		current_stage_idx = stage.stage_index
+		if not stages.has(stage):
+			stages = [stage]
+	else:
+		stages = []
+	selected_objects.clear()
+	selection_changed.emit(selected_objects)
+	recalculate_simulation()
+	queue_redraw()
+
+func set_active_stage(stage_idx: int) -> void:
+	current_stage_idx = stage_idx
+	current_stage = get_stage_by_index(stage_idx)
+	if simulation_results.has(stage_idx):
+		simulation_result = simulation_results[stage_idx]
+	queue_redraw()
+
+func set_side_by_side(enabled: bool) -> void:
+	if is_side_by_side == enabled:
+		return
+	is_side_by_side = enabled
+	recalculate_simulation()
+	zoom_to_fit()
+
+func get_stage_by_index(idx: int) -> LaserStageData:
+	for st in stages:
+		if st != null and st.stage_index == idx:
+			return st
+	if current_level != null:
+		return current_level.get_stage(idx)
+	return current_stage
+
+func get_stage_rect_in_cells(stage_idx: int) -> Rect2i:
+	if not is_side_by_side:
+		var st = get_stage_by_index(stage_idx)
+		var w = st.grid_width if st != null else 6
+		var h = st.grid_height if st != null else 6
+		return Rect2i(0, 0, w, h)
+
+	var accum_x: int = 0
+	for st in stages:
+		if st == null:
+			continue
+		var r := Rect2i(accum_x, 0, st.grid_width, st.grid_height)
+		if st.stage_index == stage_idx:
+			return r
+		accum_x += st.grid_width + STAGE_GAP_CELLS
+
+	return Rect2i(0, 0, 6, 6)
+
+func get_total_bounding_rect_cells() -> Rect2i:
+	var visible_stages = stages if is_side_by_side else ([current_stage] if current_stage != null else [])
+	if visible_stages.is_empty():
+		return Rect2i(0, 0, 6, 6)
+
+	var min_x: int = 0
+	var min_y: int = 0
+	var max_x: int = 0
+	var max_y: int = 0
+
+	for i in range(visible_stages.size()):
+		var st = visible_stages[i]
+		if st == null:
+			continue
+		var r = get_stage_rect_in_cells(st.stage_index)
+		if i == 0:
+			min_x = r.position.x
+			min_y = r.position.y
+			max_x = r.position.x + r.size.x
+			max_y = r.position.y + r.size.y
+		else:
+			min_x = min(min_x, r.position.x)
+			min_y = min(min_y, r.position.y)
+			max_x = max(max_x, r.position.x + r.size.x)
+			max_y = max(max_y, r.position.y + r.size.y)
+
+	return Rect2i(min_x, min_y, max(1, max_x - min_x), max(1, max_y - min_y))
+
+func screen_to_stage_and_cell(screen_pos: Vector2) -> Dictionary:
+	var local_world_pos = (screen_pos - pan_offset) / (cell_size * zoom_level)
+	var world_cell = Vector2i(int(floor(local_world_pos.x)), int(floor(local_world_pos.y)))
+
+	var visible_stages = stages if is_side_by_side else ([current_stage] if current_stage != null else [])
+	for st in visible_stages:
+		if st == null:
+			continue
+		var r = get_stage_rect_in_cells(st.stage_index)
+		if world_cell.x >= r.position.x and world_cell.x < r.position.x + r.size.x and \
+		   world_cell.y >= r.position.y and world_cell.y < r.position.y + r.size.y:
+			var local_cell = world_cell - r.position
+			return {
+				"inside": true,
+				"stage": st,
+				"stage_idx": st.stage_index,
+				"cell": local_cell,
+				"world_cell": world_cell
+			}
+
+	return {
+		"inside": false,
+		"stage": null,
+		"stage_idx": -1,
+		"cell": Vector2i(-1, -1),
+		"world_cell": world_cell
+	}
+
+func stage_cell_to_screen(stage_idx: int, local_cell: Vector2i) -> Vector2:
+	var r = get_stage_rect_in_cells(stage_idx)
+	return pan_offset + Vector2(r.position + local_cell) * cell_size * zoom_level
+
+func grid_to_screen(cell: Vector2i) -> Vector2:
+	return stage_cell_to_screen(current_stage_idx, cell)
+
+func screen_to_grid(screen_pos: Vector2) -> Vector2i:
+	var hit = screen_to_stage_and_cell(screen_pos)
+	if hit.inside:
+		return hit.cell
+	var local_pos = (screen_pos - pan_offset) / (cell_size * zoom_level)
+	return Vector2i(int(floor(local_pos.x)), int(floor(local_pos.y)))
+
+func recalculate_simulation() -> void:
+	simulation_results.clear()
+	active_stage_transitions.clear()
+	if not show_laser_preview:
+		simulation_result = {}
+		queue_redraw()
+		return
+
+	if is_side_by_side:
+		var carried_laser_active: bool = false
+		var carried_laser_color: Color = Color(1.0, 0.2, 0.2, 1.0)
+
+		var sorted_stages: Array[LaserStageData] = []
+		for st in stages:
+			if st != null:
+				sorted_stages.append(st)
+		sorted_stages.sort_custom(func(a, b): return a.stage_index < b.stage_index)
+
+		for st in sorted_stages:
+			var has_local_sources: bool = false
+			for obj in st.objects:
+				if obj != null and obj.enabled and obj.type == LaserObjectData.ObjectType.LASER_SOURCE:
+					has_local_sources = true
+					break
+
+			var allow_emission: bool = false
+			var in_color: Color = Color(-1, -1, -1, -1)
+
+			if has_local_sources:
+				allow_emission = true
+			elif carried_laser_active:
+				allow_emission = true
+				in_color = carried_laser_color
+			else:
+				allow_emission = false
+
+			var sim = LaserSimulation.simulate_stage(st, allow_emission, in_color)
+			simulation_results[st.stage_index] = sim
+
+			var exit_hit: bool = false
+			var hit_color: Color = Color(1.0, 0.2, 0.2, 1.0)
+			for seg in sim.get("segments", []):
+				if seg.get("hit_type", "") in ["exit_gate", "goal"]:
+					exit_hit = true
+					hit_color = seg.get("color", hit_color)
+					break
+				if st.exit_point != Vector2i(-1, -1) and (seg.get("end", Vector2i(-1, -1)) == st.exit_point or seg.get("hit_pos", Vector2i(-1, -1)) == st.exit_point):
+					exit_hit = true
+					hit_color = seg.get("color", hit_color)
+					break
+
+			if exit_hit:
+				active_stage_transitions[st.stage_index] = hit_color
+
+			carried_laser_active = exit_hit
+			carried_laser_color = hit_color
+	else:
+		if current_stage != null:
+			simulation_results[current_stage.stage_index] = LaserSimulation.simulate_stage(current_stage, true)
+
+	if current_stage != null and simulation_results.has(current_stage.stage_index):
+		simulation_result = simulation_results[current_stage.stage_index]
+	else:
+		simulation_result = {}
+	queue_redraw()
+
+func center_view() -> void:
+	var b_rect = get_total_bounding_rect_cells()
+	var total_px = Vector2(b_rect.size) * cell_size * zoom_level
+	var center_board_offset = Vector2(b_rect.position) * cell_size * zoom_level
+	pan_offset = (size - total_px) * 0.5 - center_board_offset + Vector2(0, 36.0 * zoom_level)
+	queue_redraw()
+
+func zoom_to_fit() -> void:
+	var b_rect = get_total_bounding_rect_cells()
+	var total_w_px = float(b_rect.size.x) * cell_size
+	var total_h_px = float(b_rect.size.y) * cell_size
+	var fit_zoom_x = (size.x - 120.0) / max(1.0, total_w_px)
+	var fit_zoom_y = (size.y - 190.0) / max(1.0, total_h_px)
+	zoom_level = clamp(min(fit_zoom_x, fit_zoom_y), 0.25, 2.5)
+	center_view()
+
+func focus_stage(stage_idx: int) -> void:
+	set_active_stage(stage_idx)
+	var r = get_stage_rect_in_cells(stage_idx)
+	var stage_px_center = (Vector2(r.position) + Vector2(r.size) * 0.5) * cell_size * zoom_level
+	pan_offset = size * 0.5 - stage_px_center + Vector2(0, 36.0 * zoom_level)
+	queue_redraw()
+
+func _apply_zoom(factor: float, anchor_pos: Vector2) -> void:
+	var old_zoom = zoom_level
+	var new_zoom = clamp(zoom_level * factor, 0.25, 3.0)
+	if is_equal_approx(old_zoom, new_zoom):
+		return
+	pan_offset = anchor_pos - (anchor_pos - pan_offset) * (new_zoom / old_zoom)
+	zoom_level = new_zoom
+	queue_redraw()
+
+func _gui_input(event: InputEvent) -> void:
+	if event is InputEventMouseButton:
+		var mb := event as InputEventMouseButton
+		if mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
+			_apply_zoom(1.15, mb.position)
+			accept_event()
+		elif mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
+			_apply_zoom(0.87, mb.position)
+			accept_event()
+		elif mb.button_index == MOUSE_BUTTON_MIDDLE:
+			if mb.pressed:
+				is_panning = true
+				pan_start_mouse = mb.position
+				pan_start_offset = pan_offset
+			else:
+				is_panning = false
+			accept_event()
+		elif mb.button_index == MOUSE_BUTTON_LEFT:
+			if Input.is_key_pressed(KEY_SPACE):
+				if mb.pressed:
+					is_panning = true
+					pan_start_mouse = mb.position
+					pan_start_offset = pan_offset
+				else:
+					is_panning = false
+				accept_event()
+			else:
+				_handle_left_click(mb)
+				accept_event()
+		elif mb.button_index == MOUSE_BUTTON_RIGHT:
+			if mb.pressed:
+				var hit = screen_to_stage_and_cell(mb.position)
+				if hit.inside:
+					var st: LaserStageData = hit.stage
+					var cell: Vector2i = hit.cell
+					if st.stage_index != current_stage_idx:
+						current_stage_idx = st.stage_index
+						current_stage = st
+						stage_activated.emit(current_stage_idx)
+					var obj = st.get_object_at(cell)
+					if obj != null:
+						var snap = st.duplicate_data() if undo_manager != null else null
+						obj.rotation_deg = (obj.rotation_deg + 45) % 360
+						object_modified.emit(obj)
+						recalculate_simulation()
+						if undo_manager != null and snap != null:
+							undo_manager.commit_snapshot(snap, st)
+						stage_dirty_needed.emit()
+						queue_redraw()
+				accept_event()
+
+	elif event is InputEventMouseMotion:
+		var mm := event as InputEventMouseMotion
+		if is_panning:
+			pan_offset = pan_start_offset + (mm.position - pan_start_mouse)
+			queue_redraw()
+			accept_event()
+		elif is_box_selecting:
+			box_select_current = mm.position
+			queue_redraw()
+		elif is_dragging_object and drag_object != null and current_stage != null:
+			var hit = screen_to_stage_and_cell(mm.position)
+			if hit.inside and hit.stage == current_stage:
+				var target_cell: Vector2i = hit.cell
+				if drag_object.grid_pos != target_cell and current_stage.get_object_at(target_cell) == null:
+					drag_object.grid_pos = target_cell
+					recalculate_simulation()
+					queue_redraw()
+		else:
+			var hit = screen_to_stage_and_cell(mm.position)
+			if hit.inside:
+				if hit.stage_idx != hovered_stage_idx or hit.cell != hovered_cell:
+					hovered_stage_idx = hit.stage_idx
+					hovered_cell = hit.cell
+					queue_redraw()
+			else:
+				if hovered_stage_idx != -1 or hovered_cell != Vector2i(-1, -1):
+					hovered_stage_idx = -1
+					hovered_cell = Vector2i(-1, -1)
+					queue_redraw()
+
+func _handle_left_click(mb: InputEventMouseButton) -> void:
+	var hit = screen_to_stage_and_cell(mb.position)
+	if mb.pressed:
+		if is_inside_tree():
+			grab_focus()
+
+		if not hit.inside:
+			if not Input.is_key_pressed(KEY_CTRL):
+				selected_objects.clear()
+				selection_changed.emit(selected_objects)
+			queue_redraw()
+			return
+
+		var st: LaserStageData = hit.stage
+		var cell: Vector2i = hit.cell
+
+		if st.stage_index != current_stage_idx:
+			current_stage_idx = st.stage_index
+			current_stage = st
+			stage_activated.emit(current_stage_idx)
+
+		cell_clicked.emit(cell, MOUSE_BUTTON_LEFT)
+
+		match current_tool:
+			ToolMode.SELECT:
+				var obj = st.get_object_at(cell)
+				if obj != null:
+					if not Input.is_key_pressed(KEY_CTRL) and not Input.is_key_pressed(KEY_SHIFT):
+						selected_objects.clear()
+					if not selected_objects.has(obj):
+						selected_objects.append(obj)
+					drag_object = obj
+					drag_start_cell = obj.grid_pos
+					drag_start_snapshot = st.duplicate_data() if undo_manager != null else null
+					is_dragging_object = true
+					object_selected.emit(obj)
+					selection_changed.emit(selected_objects)
+				else:
+					if not Input.is_key_pressed(KEY_CTRL):
+						selected_objects.clear()
+						selection_changed.emit(selected_objects)
+					is_box_selecting = true
+					box_select_start = mb.position
+					box_select_current = mb.position
+				queue_redraw()
+
+			ToolMode.PAINT:
+				var snap = st.duplicate_data() if undo_manager != null else null
+				var existing = st.get_object_at(cell)
+				if existing != null:
+					st.remove_object(existing)
+				var new_obj = LaserObjectData.create(active_palette_type, cell, active_palette_rot)
+				new_obj.color = active_palette_color
+				if active_palette_type == LaserObjectData.ObjectType.CUSTOM:
+					var c_data = active_palette_custom_data
+					if c_data.is_empty():
+						var all_elems = CustomElementsManager.load_elements()
+						if not all_elems.is_empty():
+							c_data = all_elems[0]
+					if not c_data.is_empty():
+						new_obj.properties["custom_id"] = c_data.get("id", "custom_1")
+						new_obj.properties["custom_name"] = c_data.get("name", "Custom")
+						new_obj.properties["custom_index"] = c_data.get("index", 0)
+						new_obj.properties["scene_path"] = c_data.get("scene_path", "")
+						if c_data.has("color"):
+							new_obj.color = c_data["color"]
+					else:
+						new_obj.properties["custom_name"] = "Custom"
+						new_obj.properties["scene_path"] = ""
+
+				st.add_object(new_obj)
+				selected_objects = [new_obj]
+				object_selected.emit(new_obj)
+				selection_changed.emit(selected_objects)
+				recalculate_simulation()
+				if undo_manager != null and snap != null:
+					undo_manager.commit_snapshot(snap, st)
+				stage_dirty_needed.emit()
+				queue_redraw()
+
+			ToolMode.ROTATE:
+				var obj = st.get_object_at(cell)
+				if obj != null:
+					var snap = st.duplicate_data() if undo_manager != null else null
+					obj.rotation_deg = (obj.rotation_deg + 45) % 360
+					object_modified.emit(obj)
+					recalculate_simulation()
+					if undo_manager != null and snap != null:
+						undo_manager.commit_snapshot(snap, st)
+					stage_dirty_needed.emit()
+					queue_redraw()
+
+			ToolMode.ERASE:
+				var snap = st.duplicate_data() if undo_manager != null else null
+				if st.remove_object_at(cell):
+					recalculate_simulation()
+					if undo_manager != null and snap != null:
+						undo_manager.commit_snapshot(snap, st)
+					stage_dirty_needed.emit()
+					queue_redraw()
+
+			ToolMode.MOVE:
+				var obj = st.get_object_at(cell)
+				if obj != null:
+					drag_object = obj
+					drag_start_cell = obj.grid_pos
+					drag_start_snapshot = st.duplicate_data() if undo_manager != null else null
+					is_dragging_object = true
+
+	else:
+		if is_dragging_object:
+			if drag_object != null and drag_object.grid_pos != drag_start_cell:
+				if undo_manager != null and drag_start_snapshot != null and current_stage != null:
+					undo_manager.commit_snapshot(drag_start_snapshot, current_stage)
+				object_modified.emit(drag_object)
+				stage_dirty_needed.emit()
+			is_dragging_object = false
+			drag_object = null
+			drag_start_snapshot = null
+			recalculate_simulation()
+			queue_redraw()
+
+		if is_box_selecting:
+			is_box_selecting = false
+			_finish_box_select()
+			queue_redraw()
+
+func _finish_box_select() -> void:
+	var rect := Rect2(box_select_start, box_select_current - box_select_start).abs()
+	if rect.size.length_squared() < 16.0:
+		return
+	if current_stage == null:
+		return
+
+	if not Input.is_key_pressed(KEY_CTRL):
+		selected_objects.clear()
+
+	var visible_stages = stages if is_side_by_side else ([current_stage] if current_stage != null else [])
+	var c_sz = cell_size * zoom_level
+
+	for st in visible_stages:
+		if st == null:
+			continue
+		var r = get_stage_rect_in_cells(st.stage_index)
+		var board_pos = pan_offset + Vector2(r.position) * c_sz
+		for obj in st.objects:
+			if obj == null:
+				continue
+			var obj_screen = board_pos + (Vector2(obj.grid_pos) + Vector2(0.5, 0.5)) * c_sz
+			if rect.has_point(obj_screen):
+				if not selected_objects.has(obj):
+					selected_objects.append(obj)
+				if st.stage_index != current_stage_idx:
+					current_stage_idx = st.stage_index
+					current_stage = st
+					stage_activated.emit(current_stage_idx)
+
+	selection_changed.emit(selected_objects)
+	if not selected_objects.is_empty():
+		object_selected.emit(selected_objects[0])
+
+func _draw() -> void:
+	draw_rect(Rect2(Vector2.ZERO, size), Color(0.10, 0.11, 0.13, 1.0))
+
+	var visible_stages = stages if is_side_by_side else ([current_stage] if current_stage != null else [])
+	if visible_stages.is_empty():
+		var font := ThemeDB.fallback_font
+		draw_string(font, size * 0.5 - Vector2(80, 0), "No Stages Loaded", HORIZONTAL_ALIGNMENT_CENTER, -1, 18, Color(0.6, 0.6, 0.6))
+		return
+
+	var c_sz = cell_size * zoom_level
+	var font := ThemeDB.fallback_font
+
+	for idx in range(visible_stages.size()):
+		var st = visible_stages[idx]
+		if st == null:
+			continue
+		var r = get_stage_rect_in_cells(st.stage_index)
+		var is_active = (st.stage_index == current_stage_idx)
+		var board_pos = pan_offset + Vector2(r.position) * c_sz
+		var board_sz = Vector2(r.size) * c_sz
+
+		draw_rect(Rect2(board_pos + Vector2(5, 5) * zoom_level, board_sz), Color(0.03, 0.03, 0.05, 0.6))
+		var bg_col = Color(0.16, 0.18, 0.22, 1.0) if is_active else Color(0.13, 0.14, 0.17, 0.95)
+		draw_rect(Rect2(board_pos, board_sz), bg_col)
+
+		for x in range(st.grid_width):
+			for y in range(st.grid_height):
+				var cell_rect := Rect2(board_pos + Vector2(x, y) * c_sz, Vector2(c_sz, c_sz))
+				var is_even := (x + y) % 2 == 0
+				var tile_col: Color
+				if is_active:
+					tile_col = Color(0.18, 0.20, 0.25, 1.0) if is_even else Color(0.15, 0.17, 0.21, 1.0)
+				else:
+					tile_col = Color(0.15, 0.16, 0.19, 1.0) if is_even else Color(0.12, 0.13, 0.16, 1.0)
+				draw_rect(cell_rect, tile_col)
+				var border_col = Color(0.24, 0.27, 0.33, 0.35) if is_active else Color(0.20, 0.22, 0.26, 0.25)
+				draw_rect(cell_rect, border_col, false, 1.0)
+
+		if is_active:
+			draw_rect(Rect2(board_pos, board_sz).grow(2.0 * zoom_level), Color(1.0, 0.82, 0.2, 0.85), false, 2.5 * zoom_level)
+			draw_rect(Rect2(board_pos, board_sz).grow(4.0 * zoom_level), Color(1.0, 0.82, 0.2, 0.25), false, 1.5 * zoom_level)
+		else:
+			draw_rect(Rect2(board_pos, board_sz), Color(0.26, 0.30, 0.36, 0.6), false, 1.5)
+
+		if show_grid_coords and zoom_level > 0.55:
+			var coord_col := Color(0.75, 0.80, 0.90)
+			for x in range(st.grid_width):
+				var txt = str(x)
+				var pos = board_pos + Vector2(float(x) * c_sz + c_sz * 0.5 - 4.0 * zoom_level, -10.0 * zoom_level)
+				draw_string(font, pos, txt, HORIZONTAL_ALIGNMENT_CENTER, -1, int(11 * zoom_level), coord_col)
+			for y in range(st.grid_height):
+				var txt = str(y)
+				var pos = board_pos + Vector2(-24.0 * zoom_level, float(y) * c_sz + c_sz * 0.5 + 4.0 * zoom_level)
+				draw_string(font, pos, txt, HORIZONTAL_ALIGNMENT_RIGHT, -1, int(11 * zoom_level), coord_col)
+
+		var header_h = max(24.0, 26.0 * zoom_level)
+		var header_y = board_pos.y - header_h - (42.0 * zoom_level)
+		var header_rect = Rect2(board_pos.x, header_y, board_sz.x, header_h)
+		var h_bg = Color(0.20, 0.26, 0.35, 0.95) if is_active else Color(0.14, 0.16, 0.20, 0.85)
+		draw_rect(header_rect, h_bg)
+		var h_border = Color(1.0, 0.85, 0.3, 0.9) if is_active else Color(0.3, 0.35, 0.42, 0.6)
+		draw_rect(header_rect, h_border, false, 1.5)
+
+		var title_txt = "STAGE %d  (%dx%d)" % [st.stage_index, st.grid_width, st.grid_height]
+		if is_active:
+			title_txt += " ● ACTIVE"
+		var title_col = Color(1.0, 0.9, 0.4) if is_active else Color(0.75, 0.8, 0.88)
+		draw_string(font, header_rect.position + Vector2(8, header_h * 0.68), title_txt, HORIZONTAL_ALIGNMENT_LEFT, int(board_sz.x - 16), int(12 * zoom_level), title_col)
+
+		var sim: Dictionary = simulation_results.get(st.stage_index, {})
+		if show_laser_preview and sim.has("segments"):
+			var segments: Array = sim.get("segments", [])
+			for seg in segments:
+				var s_cell: Vector2i = seg["start"]
+				var e_cell: Vector2i = seg["end"]
+				var b_color: Color = seg["color"]
+
+				var p1 = board_pos + (Vector2(s_cell) + Vector2(0.5, 0.5)) * c_sz
+				var p2 = board_pos + (Vector2(e_cell) + Vector2(0.5, 0.5)) * c_sz
+
+				draw_line(p1, p2, Color(b_color.r, b_color.g, b_color.b, 0.25), 6.0 * zoom_level, true)
+				draw_line(p1, p2, Color(b_color.r, b_color.g, b_color.b, 0.65), 3.0 * zoom_level, true)
+				draw_line(p1, p2, Color(1.0, 1.0, 1.0, 0.95), 1.2 * zoom_level, true)
+
+		for obj in st.objects:
+			if obj != null and obj.enabled and obj.type == LaserObjectData.ObjectType.MOVABLE_AREA:
+				_draw_puzzle_object(obj, c_sz, r.position, sim)
+
+		for obj in st.objects:
+			if obj == null or not obj.enabled or obj.type == LaserObjectData.ObjectType.MOVABLE_AREA:
+				continue
+			_draw_puzzle_object(obj, c_sz, r.position, sim)
+
+		for sel in selected_objects:
+			if sel != null and st.objects.has(sel) and st.is_inside_grid(sel.grid_pos):
+				var sel_rect := Rect2(board_pos + Vector2(sel.grid_pos) * c_sz, Vector2(c_sz, c_sz))
+				draw_rect(sel_rect, Color(1.0, 0.8, 0.2, 0.2))
+				draw_rect(sel_rect, Color(1.0, 0.85, 0.1, 1.0), false, 2.5)
+
+		if hovered_stage_idx == st.stage_index and st.is_inside_grid(hovered_cell):
+			var h_rect := Rect2(board_pos + Vector2(hovered_cell) * c_sz, Vector2(c_sz, c_sz))
+			draw_rect(h_rect, Color(1.0, 1.0, 1.0, 0.12), false, 1.5)
+
+			if current_tool == ToolMode.PAINT:
+				var center = board_pos + (Vector2(hovered_cell) + Vector2(0.5, 0.5)) * c_sz
+				draw_circle(center, 8.0 * zoom_level, Color(active_palette_color.r, active_palette_color.g, active_palette_color.b, 0.45))
+
+		if is_side_by_side and idx < visible_stages.size() - 1:
+			var next_st = visible_stages[idx + 1]
+			var next_r = get_stage_rect_in_cells(next_st.stage_index)
+			var next_board_pos = pan_offset + Vector2(next_r.position) * c_sz
+			var gap_start_x = board_pos.x + board_sz.x
+			var gap_end_x = next_board_pos.x
+			var mid_x = (gap_start_x + gap_end_x) * 0.5
+			var mid_y = board_pos.y + board_sz.y * 0.5
+
+			var is_transition_laser_active: bool = active_stage_transitions.has(st.stage_index)
+			var arrow_color: Color = active_stage_transitions[st.stage_index] if is_transition_laser_active else Color(0.35, 0.45, 0.55, 0.45)
+			var arrow_start = Vector2(gap_start_x + 14.0 * zoom_level, mid_y)
+			var arrow_end = Vector2(gap_end_x - 28.0 * zoom_level, mid_y)
+			if arrow_end.x > arrow_start.x + 10.0 * zoom_level:
+				if is_transition_laser_active:
+					draw_line(arrow_start, arrow_end, Color(arrow_color.r, arrow_color.g, arrow_color.b, 0.35), 7.0 * zoom_level)
+					draw_line(arrow_start, arrow_end, Color(1.0, 1.0, 1.0, 0.9), 1.8 * zoom_level)
+				draw_line(arrow_start, arrow_end, arrow_color, 2.5 * zoom_level)
+				var tip = arrow_end
+				var head_sz = 8.0 * zoom_level
+				var p_top = tip + Vector2(-head_sz, -head_sz * 0.7)
+				var p_bot = tip + Vector2(-head_sz, head_sz * 0.7)
+				draw_colored_polygon(PackedVector2Array([tip, p_top, p_bot]), arrow_color)
+
+				var dir_name = LaserStageData.DIRECTION_NAMES.get(st.exit_direction, "Right")
+				var flow_txt = ("⚡ %s Laser" % dir_name) if is_transition_laser_active else ("%s Flow" % dir_name)
+				draw_string(font, Vector2(mid_x - 45 * zoom_level, mid_y - 8 * zoom_level), flow_txt, HORIZONTAL_ALIGNMENT_CENTER, int(90 * zoom_level), int(10 * zoom_level), arrow_color)
+
+	if is_box_selecting:
+		var b_rect := Rect2(box_select_start, box_select_current - box_select_start).abs()
+		draw_rect(b_rect, Color(0.2, 0.6, 1.0, 0.2))
+		draw_rect(b_rect, Color(0.4, 0.8, 1.0, 0.9), false, 1.5)
+
+func _draw_puzzle_object(obj: LaserObjectData, c_sz: float, stage_offset: Vector2i = Vector2i.ZERO, sim_res: Dictionary = {}) -> void:
+	var center = pan_offset + (Vector2(stage_offset) + Vector2(obj.grid_pos) + Vector2(0.5, 0.5)) * c_sz
+	var rad = c_sz * 0.42
+	var font := ThemeDB.fallback_font
+
+	match obj.type:
+		LaserObjectData.ObjectType.LASER_SOURCE:
+			draw_circle(center, rad * 0.8, Color(0.25, 0.28, 0.35))
+			draw_circle(center, rad * 0.5, obj.color)
+			draw_circle(center, rad * 0.2, Color.WHITE)
+			var rot_rad = deg_to_rad(float(obj.rotation_deg))
+			var p_tip = center + Vector2(rad * 1.1, 0).rotated(rot_rad)
+			draw_line(center, p_tip, obj.color, 3.5 * zoom_level)
+
+		LaserObjectData.ObjectType.FIXED_MIRROR:
+			var rot_rad = deg_to_rad(float(obj.rotation_deg))
+			var p1 = center + Vector2(-rad, -rad).rotated(rot_rad)
+			var p2 = center + Vector2(rad, rad).rotated(rot_rad)
+			draw_line(p1, p2, Color(0.3, 0.6, 0.9, 0.5), 6.0 * zoom_level)
+			draw_line(p1, p2, Color(0.85, 0.95, 1.0), 2.5 * zoom_level)
+
+		LaserObjectData.ObjectType.MOVABLE_MIRROR:
+			var r_sz = rad * 1.6
+			var box = Rect2(center - Vector2(r_sz, r_sz) * 0.5, Vector2(r_sz, r_sz))
+			draw_rect(box, Color(0.2, 0.3, 0.4, 0.6), true)
+			draw_rect(box, Color(0.4, 0.7, 1.0, 0.8), false, 1.5)
+			var rot_rad = deg_to_rad(float(obj.rotation_deg))
+			var p1 = center + Vector2(-rad, -rad).rotated(rot_rad)
+			var p2 = center + Vector2(rad, rad).rotated(rot_rad)
+			draw_line(p1, p2, Color(0.9, 0.95, 1.0), 3.0 * zoom_level)
+
+		LaserObjectData.ObjectType.ROTATABLE_MIRROR:
+			draw_arc(center, rad * 0.85, 0, TAU, 16, Color(0.5, 0.8, 0.3, 0.7), 1.5)
+			var rot_rad = deg_to_rad(float(obj.rotation_deg))
+			var p1 = center + Vector2(-rad * 0.7, -rad * 0.7).rotated(rot_rad)
+			var p2 = center + Vector2(rad * 0.7, rad * 0.7).rotated(rot_rad)
+			draw_line(p1, p2, Color(0.9, 1.0, 0.9), 3.0 * zoom_level)
+
+		LaserObjectData.ObjectType.MOVABLE_AREA:
+			var tile_rect = Rect2(pan_offset + (Vector2(stage_offset) + Vector2(obj.grid_pos)) * c_sz, Vector2(c_sz, c_sz))
+			draw_rect(tile_rect.grow(-3), Color(0.12, 0.45, 0.75, 0.35), true)
+			draw_rect(tile_rect.grow(-3), Color(0.35, 0.85, 1.0, 0.8), false, 1.5 * zoom_level)
+			var m_rad = rad * 0.35
+			draw_arc(center, m_rad, 0, TAU, 12, Color(0.35, 0.85, 1.0, 0.6), 1.2 * zoom_level)
+			draw_line(center - Vector2(m_rad, 0), center + Vector2(m_rad, 0), Color(0.35, 0.85, 1.0, 0.6), 1.0 * zoom_level)
+			draw_line(center - Vector2(0, m_rad), center + Vector2(0, m_rad), Color(0.35, 0.85, 1.0, 0.6), 1.0 * zoom_level)
+
+		LaserObjectData.ObjectType.ROCK:
+			var pts: PackedVector2Array = [
+				center + Vector2(-rad, -rad * 0.6),
+				center + Vector2(rad * 0.2, -rad),
+				center + Vector2(rad, -rad * 0.4),
+				center + Vector2(rad * 0.8, rad * 0.8),
+				center + Vector2(-rad * 0.5, rad),
+				center + Vector2(-rad * 0.9, rad * 0.2)
+			]
+			draw_colored_polygon(pts, Color(0.45, 0.42, 0.4))
+			draw_polyline(pts, Color(0.3, 0.28, 0.26), 1.5)
+
+		LaserObjectData.ObjectType.ICE:
+			var r_sz = rad * 1.5
+			var box = Rect2(center - Vector2(r_sz, r_sz) * 0.5, Vector2(r_sz, r_sz))
+			draw_rect(box, Color(0.4, 0.8, 0.95, 0.65), true)
+			draw_rect(box, Color(0.8, 0.95, 1.0, 0.9), false, 1.5)
+
+		LaserObjectData.ObjectType.SPLITTER:
+			draw_circle(center, rad * 0.85, Color(0.3, 0.25, 0.4))
+			var rot_rad = deg_to_rad(float(obj.rotation_deg))
+			var bar1 = center + Vector2(-rad * 0.6, -rad * 0.3).rotated(rot_rad)
+			var bar2 = center + Vector2(rad * 0.6, -rad * 0.3).rotated(rot_rad)
+			var stem = center + Vector2(0, rad * 0.6).rotated(rot_rad)
+			draw_line(bar1, bar2, Color(0.8, 0.5, 1.0), 3.0 * zoom_level)
+			draw_line(center, stem, Color(0.8, 0.5, 1.0), 3.0 * zoom_level)
+
+		LaserObjectData.ObjectType.COLOR_GLASS:
+			var r_sz = rad * 1.4
+			var box = Rect2(center - Vector2(r_sz, r_sz) * 0.5, Vector2(r_sz, r_sz))
+			draw_rect(box, Color(obj.color.r, obj.color.g, obj.color.b, 0.55), true)
+			draw_rect(box, Color.WHITE, false, 1.5)
+
+		LaserObjectData.ObjectType.COLOR_WALL:
+			var r_sz = rad * 1.6
+			var box = Rect2(center - Vector2(r_sz, r_sz) * 0.5, Vector2(r_sz, r_sz))
+			draw_rect(box, Color(obj.color.r * 0.7, obj.color.g * 0.7, obj.color.b * 0.7, 1.0), true)
+			draw_rect(box, Color(obj.color.r, obj.color.g, obj.color.b, 1.0), false, 2.5)
+
+		LaserObjectData.ObjectType.GATE:
+			var r_sz = rad * 1.5
+			var box = Rect2(center - Vector2(r_sz, r_sz) * 0.5, Vector2(r_sz, r_sz))
+			draw_rect(box, Color(0.35, 0.08, 0.08, 0.85), true)
+			draw_rect(box, Color(0.9, 0.25, 0.25), false, 2.0 * zoom_level)
+			var door_w = r_sz * 0.5
+			var door_h = r_sz * 0.7
+			var door_rect = Rect2(center.x - door_w * 0.5, center.y + r_sz * 0.5 - door_h, door_w, door_h)
+			draw_rect(door_rect, Color(0.18, 0.04, 0.04, 0.95), true)
+			draw_line(door_rect.position, door_rect.position + door_rect.size, Color(1.0, 0.6, 0.6, 0.7), 1.5 * zoom_level)
+			draw_line(Vector2(door_rect.position.x + door_rect.size.x, door_rect.position.y), Vector2(door_rect.position.x, door_rect.position.y + door_rect.size.y), Color(1.0, 0.6, 0.6, 0.7), 1.5 * zoom_level)
+			draw_circle(center + Vector2(0, -rad * 0.1), rad * 0.2, Color.WHITE)
+			draw_circle(center + Vector2(0, -rad * 0.1), rad * 0.12, Color(0.9, 0.2, 0.2))
+
+		LaserObjectData.ObjectType.EXIT_GATE:
+			var r_sz = rad * 1.5
+			var box = Rect2(center - Vector2(r_sz, r_sz) * 0.5, Vector2(r_sz, r_sz))
+			var x_hit = sim_res.get("exit_gates_hit", {}).get(obj.grid_pos, false)
+			var base_c = Color(0.1, 0.7, 0.45, 0.9) if x_hit else Color(0.08, 0.35, 0.25, 0.85)
+			var border_c = Color(0.4, 1.0, 0.7) if x_hit else Color(0.2, 0.8, 0.5)
+			draw_rect(box, base_c, true)
+			draw_rect(box, border_c, false, 2.5 * zoom_level)
+			var door_w = r_sz * 0.5
+			var door_h = r_sz * 0.7
+			var door_rect = Rect2(center.x - door_w * 0.5, center.y + r_sz * 0.5 - door_h, door_w, door_h)
+			draw_rect(door_rect, Color(0.02, 0.15, 0.1, 0.95), true)
+			var arr_start = center + Vector2(0, rad * 0.25)
+			var arr_end = center + Vector2(0, -rad * 0.25)
+			draw_line(arr_start, arr_end, Color.WHITE, 2.0 * zoom_level)
+			draw_line(arr_end, arr_end + Vector2(-rad * 0.2, rad * 0.2), Color.WHITE, 2.0 * zoom_level)
+			draw_line(arr_end, arr_end + Vector2(rad * 0.2, rad * 0.2), Color.WHITE, 2.0 * zoom_level)
+
+		LaserObjectData.ObjectType.SWITCH:
+			var hit = sim_res.get("switches_hit", {}).get(obj.grid_pos, false)
+			var s_col = Color(0.3, 1.0, 0.5) if hit else Color(0.7, 0.7, 0.3)
+			draw_circle(center, rad * 0.7, s_col)
+			draw_arc(center, rad * 0.85, 0, TAU, 12, Color.WHITE, 1.5)
+
+		LaserObjectData.ObjectType.GATE_SWITCH:
+			draw_rect(Rect2(center - Vector2(rad, rad) * 0.6, Vector2(rad, rad) * 1.2), Color(0.6, 0.4, 0.2))
+			draw_circle(center, rad * 0.4, Color.GOLD)
+
+		LaserObjectData.ObjectType.GOAL:
+			var g_hit = sim_res.get("goals_hit", {}).get(obj.grid_pos, false)
+			var g_col = Color(0.2, 1.0, 0.4) if g_hit else obj.color
+			draw_circle(center, rad * 0.85, Color(0.15, 0.15, 0.2))
+			draw_arc(center, rad * 0.7, 0, TAU, 16, g_col, 2.5 * zoom_level)
+			draw_circle(center, rad * 0.35, g_col)
+			if g_hit:
+				draw_circle(center, rad * 0.15, Color.WHITE)
+
+		LaserObjectData.ObjectType.CUSTOM:
+			var r_sz = rad * 1.4
+			var box = Rect2(center - Vector2(r_sz, r_sz) * 0.5, Vector2(r_sz, r_sz))
+			draw_rect(box, Color(obj.color.r * 0.4, obj.color.g * 0.4, obj.color.b * 0.4, 0.8), true)
+			draw_rect(box, obj.color, false, 2.0)
+			var pts: PackedVector2Array = [
+				center + Vector2(0, -rad * 0.6),
+				center + Vector2(rad * 0.6, 0),
+				center + Vector2(0, rad * 0.6),
+				center + Vector2(-rad * 0.6, 0)
+			]
+			draw_colored_polygon(pts, obj.color)
+			draw_polyline(pts, Color.WHITE, 1.5)
+
+		_:
+			draw_circle(center, rad * 0.5, obj.color)
+
+	if zoom_level > 1.1:
+		var name_str = ""
+		if obj.type == LaserObjectData.ObjectType.CUSTOM:
+			name_str = str(obj.properties.get("custom_name", ""))
+		if name_str.is_empty():
+			name_str = LaserObjectData.TYPE_SHORT_NAMES.get(obj.type, "")
+		draw_string(font, center + Vector2(-rad, rad + 11), name_str, HORIZONTAL_ALIGNMENT_CENTER, int(rad * 2), int(9 * zoom_level), Color(0.8, 0.8, 0.8, 0.8))

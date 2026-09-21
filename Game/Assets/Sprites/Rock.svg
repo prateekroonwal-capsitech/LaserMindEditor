@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="rockGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#5a5652" />
+      <stop offset="50%" stop-color="#3d3a36" />
+      <stop offset="100%" stop-color="#242220" />
+    </linearGradient>
+  </defs>
+  <!-- Chiseled boulder outline -->
+  <polygon points="20,44 42,18 84,14 112,48 102,96 68,114 26,104 14,72" fill="url(#rockGrad)" stroke="#1a1816" stroke-width="4"/>
+  <!-- Facet planes and cracks -->
+  <polygon points="42,18 84,14 68,54 36,48" fill="#6c6762" opacity="0.6"/>
+  <polygon points="84,14 112,48 78,72 68,54" fill="#4d4945" opacity="0.6"/>
+  <line x1="68" y1="54" x2="68" y2="114" stroke="#1d1b19" stroke-width="3"/>
+  <line x1="36" y1="48" x2="26" y2="104" stroke="#1d1b19" stroke-width="3"/>
+  <line x1="78" y1="72" x2="102" y2="96" stroke="#1d1b19" stroke-width="3"/>
+  <!-- Highlights -->
+  <line x1="44" y1="22" x2="82" y2="18" stroke="#8a847e" stroke-width="2"/>
+</svg>

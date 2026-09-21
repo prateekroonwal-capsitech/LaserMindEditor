@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="gateSwGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f72585" />
+      <stop offset="100%" stop-color="#7209b7" />
+    </linearGradient>
+    <radialGradient id="goldCore" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffe600" />
+      <stop offset="100%" stop-color="#ff9100" />
+    </radialGradient>
+  </defs>
+  <!-- Gate Frame -->
+  <rect x="14" y="14" width="100" height="100" rx="12" fill="#1b1e24" stroke="#f72585" stroke-width="4"/>
+  <rect x="22" y="22" width="84" height="84" rx="8" fill="url(#gateSwGrad)"/>
+  <!-- Diagonal blast bars -->
+  <line x1="22" y1="22" x2="106" y2="106" stroke="#ffffff" stroke-width="2.5" stroke-opacity="0.5"/>
+  <line x1="106" y1="22" x2="22" y2="106" stroke="#ffffff" stroke-width="2.5" stroke-opacity="0.5"/>
+  <!-- Switch Button in Center -->
+  <circle cx="64" cy="64" r="22" fill="#12141a" stroke="#ffffff" stroke-width="2"/>
+  <circle cx="64" cy="64" r="15" fill="url(#goldCore)"/>
+  <!-- Lightning bolt / trigger icon -->
+  <polygon points="65,54 57,65 63,65 61,74 71,63 65,63" fill="#ffffff"/>
+</svg>

@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <radialGradient id="switchGrad" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffb703" />
+      <stop offset="100%" stop-color="#fb8500" />
+    </radialGradient>
+  </defs>
+  <!-- Floor pad housing -->
+  <rect x="16" y="16" width="96" height="96" rx="18" fill="#1e222b" stroke="#fb8500" stroke-width="4"/>
+  <!-- Target circles -->
+  <circle cx="64" cy="64" r="34" fill="#12141a" stroke="#ffffff" stroke-width="2"/>
+  <!-- Switch core button -->
+  <circle cx="64" cy="64" r="22" fill="url(#switchGrad)"/>
+  <circle cx="64" cy="64" r="8" fill="#ffffff"/>
+</svg>

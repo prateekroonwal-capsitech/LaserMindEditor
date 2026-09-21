@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <radialGradient id="laserCore" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#ffffff" />
+      <stop offset="30%" stop-color="#ff3366" />
+      <stop offset="100%" stop-color="#d90429" />
+    </radialGradient>
+    <linearGradient id="cannonGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#3a404d" />
+      <stop offset="100%" stop-color="#191c21" />
+    </linearGradient>
+  </defs>
+  <!-- Mount base -->
+  <rect x="18" y="18" width="92" height="92" rx="20" fill="url(#cannonGrad)" stroke="#ef233c" stroke-width="4"/>
+  <!-- Cannon turret body -->
+  <circle cx="64" cy="64" r="34" fill="#2b2d42" stroke="#8d99ae" stroke-width="3"/>
+  <!-- Emitter nozzle pointing UP / forward -->
+  <rect x="54" y="10" width="20" height="30" rx="4" fill="#d90429" stroke="#ffffff" stroke-width="2"/>
+  <!-- Glowing central lens -->
+  <circle cx="64" cy="64" r="22" fill="url(#laserCore)"/>
+  <circle cx="64" cy="64" r="10" fill="#ffffff" fill-opacity="0.9"/>
+  <!-- Energy conduits -->
+  <line x1="36" y1="64" x2="48" y2="64" stroke="#ff3366" stroke-width="3"/>
+  <line x1="80" y1="64" x2="92" y2="64" stroke="#ff3366" stroke-width="3"/>
+</svg>

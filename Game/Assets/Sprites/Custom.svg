@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="customGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f6d365" />
+      <stop offset="100%" stop-color="#fda085" />
+    </linearGradient>
+    <linearGradient id="facetGrad" x1="0%" y1="100%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.6"/>
+      <stop offset="100%" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <!-- Outer glowing diamond shape -->
+  <polygon points="64,10 118,64 64,118 10,64" fill="url(#customGrad)" stroke="#ffffff" stroke-width="4"/>
+  <!-- Internal facets -->
+  <polygon points="64,28 100,64 64,100 28,64" fill="none" stroke="#ffffff" stroke-width="2" opacity="0.8"/>
+  <polygon points="64,10 118,64 64,64" fill="url(#facetGrad)"/>
+  <polygon points="10,64 64,10 64,64" fill="#ffffff" opacity="0.25"/>
+  <!-- Center star emblem -->
+  <polygon points="64,44 68,58 82,64 68,70 64,84 60,70 46,64 60,58" fill="#ffffff"/>
+</svg>

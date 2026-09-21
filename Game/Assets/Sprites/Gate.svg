@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="gateGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#e63946" />
+      <stop offset="100%" stop-color="#9d0208" />
+    </linearGradient>
+  </defs>
+  <!-- Security gate frame -->
+  <rect x="14" y="14" width="100" height="100" rx="12" fill="#1b1e24" stroke="#e63946" stroke-width="4"/>
+  <!-- Heavy blast door bars -->
+  <rect x="22" y="22" width="84" height="84" rx="8" fill="url(#gateGrad)"/>
+  <line x1="22" y1="22" x2="106" y2="106" stroke="#ffffff" stroke-width="3" stroke-opacity="0.6"/>
+  <line x1="106" y1="22" x2="22" y2="106" stroke="#ffffff" stroke-width="3" stroke-opacity="0.6"/>
+  <!-- Lock badge -->
+  <circle cx="64" cy="64" r="14" fill="#ffffff"/>
+  <circle cx="64" cy="64" r="8" fill="#9d0208"/>
+</svg>

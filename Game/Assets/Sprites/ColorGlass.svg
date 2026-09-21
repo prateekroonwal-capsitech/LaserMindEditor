@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <!-- Optical color filter frame -->
+  <rect x="18" y="18" width="92" height="92" rx="14" fill="#00f5d4" fill-opacity="0.5" stroke="#ffffff" stroke-width="4"/>
+  <rect x="26" y="26" width="76" height="76" rx="8" fill="none" stroke="#00bbf9" stroke-width="2"/>
+  <line x1="32" y1="32" x2="68" y2="32" stroke="#ffffff" stroke-width="3" stroke-linecap="round"/>
+</svg>
