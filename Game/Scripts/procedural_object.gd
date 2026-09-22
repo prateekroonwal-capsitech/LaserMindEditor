@@ -45,14 +45,15 @@ func _draw() -> void:
 			draw_line(Vector2.ZERO, p_tip, obj_data.color, 3.5)
 
 		LaserObjectData.ObjectType.MOVABLE_AREA:
-			var r_sz = rad * 1.8
+			var r_sz = rad * 2.0
 			var box = Rect2(-Vector2(r_sz, r_sz) * 0.5, Vector2(r_sz, r_sz))
-			draw_rect(box.grow(-2), Color(0.12, 0.45, 0.75, 0.35), true)
-			draw_rect(box.grow(-2), Color(0.35, 0.85, 1.0, 0.8), false, 1.5)
+			var col: Color = obj_data.color if (obj_data.color != Color(1.0, 0.2, 0.2, 1.0) and obj_data.color.a > 0.05) else Color(0.18, 0.62, 0.98, 1.0)
+			draw_rect(box.grow(-2), Color(col.r, col.g, col.b, 0.35), true)
+			draw_rect(box.grow(-2), Color(col.r, col.g, col.b, 0.85), false, 2.0)
 			var m_rad = rad * 0.35
-			draw_arc(Vector2.ZERO, m_rad, 0, TAU, 12, Color(0.35, 0.85, 1.0, 0.6), 1.2)
-			draw_line(Vector2(-m_rad, 0), Vector2(m_rad, 0), Color(0.35, 0.85, 1.0, 0.6), 1.0)
-			draw_line(Vector2(0, -m_rad), Vector2(0, m_rad), Color(0.35, 0.85, 1.0, 0.6), 1.0)
+			draw_arc(Vector2.ZERO, m_rad, 0, TAU, 12, col, 1.2)
+			draw_line(Vector2(-m_rad, 0), Vector2(m_rad, 0), col, 1.0)
+			draw_line(Vector2(0, -m_rad), Vector2(0, m_rad), col, 1.0)
 
 		LaserObjectData.ObjectType.FIXED_MIRROR:
 			var rot_rad = deg_to_rad(float(obj_data.rotation_deg))

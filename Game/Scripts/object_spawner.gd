@@ -111,17 +111,7 @@ func update_node_transform(
 			(node as BaseLaserObject).set_radius(cell_size.x * 0.42)
 
 static func has_movable_areas(stage: LaserStageData) -> bool:
-	if stage == null:
-		return false
-	for obj in stage.objects:
-		if obj != null and obj.enabled and obj.type == LaserObjectData.ObjectType.MOVABLE_AREA:
-			return true
-	return false
+	return stage != null and stage.has_movable_areas()
 
 static func is_cell_in_movable_area(stage: LaserStageData, cell: Vector2i) -> bool:
-	if stage == null:
-		return false
-	for obj in stage.objects:
-		if obj != null and obj.enabled and obj.type == LaserObjectData.ObjectType.MOVABLE_AREA and obj.grid_pos == cell:
-			return true
-	return false
+	return stage != null and stage.is_cell_in_movable_area(cell)

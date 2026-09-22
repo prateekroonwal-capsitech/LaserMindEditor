@@ -10,14 +10,7 @@ id = "laser_0668"
 type = 0
 color = Color(1, 0, 0, 1)
 
-[sub_resource type="Resource" id="Resource_akk5v"]
-script = ExtResource("3_rvopn")
-id = "xgate_4305"
-type = 15
-grid_pos = Vector2i(0, 4)
-color = Color(1, 0, 0, 1)
-
-[sub_resource type="Resource" id="Resource_lqunb"]
+[sub_resource type="Resource" id="Resource_rvopn"]
 script = ExtResource("3_rvopn")
 id = "rmir_0040"
 type = 3
@@ -26,7 +19,7 @@ rotation_deg = 270
 color = Color(1, 0, 0, 1)
 rotatable = true
 
-[sub_resource type="Resource" id="Resource_rvopn"]
+[sub_resource type="Resource" id="Resource_akk5v"]
 script = ExtResource("3_rvopn")
 id = "rmir_7393"
 type = 3
@@ -34,40 +27,46 @@ grid_pos = Vector2i(4, 4)
 color = Color(1, 0, 0, 1)
 rotatable = true
 
-[sub_resource type="Resource" id="Resource_bxig8"]
-script = ExtResource("3_rvopn")
-id = "marea_8938"
-type = 4
-grid_pos = Vector2i(1, 1)
-color = Color(1, 0, 0, 1)
-
-[sub_resource type="Resource" id="Resource_qtqw8"]
-script = ExtResource("3_rvopn")
-id = "marea_7903"
-type = 4
-grid_pos = Vector2i(1, 2)
-color = Color(1, 0, 0, 1)
-
-[sub_resource type="Resource" id="Resource_pkkp5"]
-script = ExtResource("3_rvopn")
-id = "marea_7443"
-type = 4
-grid_pos = Vector2i(2, 2)
-color = Color(1, 0, 0, 1)
-
-[sub_resource type="Resource" id="Resource_giv2s"]
-script = ExtResource("3_rvopn")
-id = "marea_9459"
-type = 4
-grid_pos = Vector2i(2, 1)
-color = Color(1, 0, 0, 1)
-
 [sub_resource type="Resource" id="Resource_bmu8x"]
 script = ExtResource("2_lqunb")
 grid_width = 5
 grid_height = 5
 time_limit = 15.0
-objects = Array[ExtResource("3_rvopn")]([SubResource("Resource_qdb8q"), SubResource("Resource_akk5v"), SubResource("Resource_lqunb"), SubResource("Resource_rvopn"), SubResource("Resource_bxig8"), SubResource("Resource_qtqw8"), SubResource("Resource_pkkp5"), SubResource("Resource_giv2s")])
+objects = Array[ExtResource("3_rvopn")]([SubResource("Resource_qdb8q"), SubResource("Resource_rvopn"), SubResource("Resource_akk5v")])
+board_image_path = "res://Game/Assets/Board/board2.png"
+board_slice_cols = 5
+board_slice_rows = 5
+board_tiles = {
+"0,0": [0, 0],
+"0,1": [0, 1],
+"0,2": [0, 2],
+"0,3": [0, 3],
+"0,4": [0, 4],
+"1,0": [1, 0],
+"1,1": [1, 1],
+"1,2": [1, 2],
+"1,3": [1, 3],
+"1,4": [1, 4],
+"2,0": [2, 0],
+"2,1": [2, 2],
+"2,2": [2, 2],
+"2,3": [2, 3],
+"2,4": [2, 4],
+"3,0": [3, 0],
+"3,1": [3, 1],
+"3,2": [3, 2],
+"3,3": [3, 3],
+"3,4": [3, 4],
+"4,0": [4, 0],
+"4,1": [4, 1],
+"4,2": [4, 2],
+"4,3": [4, 3],
+"4,4": [4, 4]
+}
+board_margin_left = 21
+board_margin_top = 23
+board_margin_right = 18
+board_margin_bottom = 20
 
 [sub_resource type="Resource" id="Resource_3e577"]
 script = ExtResource("3_rvopn")
@@ -99,6 +98,12 @@ grid_height = 5
 time_limit = 15.0
 objects = Array[ExtResource("3_rvopn")]([SubResource("Resource_3e577"), SubResource("Resource_f50j8"), SubResource("Resource_uxk28")])
 stage_transition_direction = 1
+board_image_path = "res://Game/Assets/Board/board2.png"
+board_tiles = {
+"0,2": [0, 1],
+"3,2": [0, 1]
+}
+board_margin_left = 21
 
 [sub_resource type="Resource" id="Resource_uqhes"]
 script = ExtResource("3_rvopn")
@@ -139,6 +144,27 @@ grid_height = 5
 time_limit = 15.0
 objects = Array[ExtResource("3_rvopn")]([SubResource("Resource_uqhes"), SubResource("Resource_qvm2o"), SubResource("Resource_a6map"), SubResource("Resource_grm3h")])
 stage_transition_direction = 2
+board_image_path = "res://Game/Assets/Board/board2.png"
+board_tiles = {
+"0,0": [0, 0],
+"0,1": [0, 1],
+"0,2": [0, 2],
+"1,0": [1, 0],
+"1,1": [1, 1],
+"1,2": [1, 2],
+"2,0": [2, 0],
+"2,1": [2, 1],
+"2,2": [2, 2],
+"3,0": [3, 0],
+"3,1": [3, 1],
+"4,0": [4, 0],
+"4,1": [4, 1]
+}
+board_margin_left = 21
+board_margin_top = 20
+board_margin_right = 19
+board_margin_bottom = 21
+hidden_frame_pieces = Array[String](["L_4"])
 
 [sub_resource type="Resource" id="Resource_k3xwo"]
 script = ExtResource("3_rvopn")

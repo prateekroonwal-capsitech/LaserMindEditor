@@ -3,6 +3,7 @@ extends PanelContainer
 class_name InspectorPanel
 
 const SceneDropLineEdit = preload("res://addons/LevelEditorPlugin/ui/scene_drop_line_edit.gd")
+const BoardLayoutManager = preload("res://Game/Scripts/board_layout_manager.gd")
 
 signal object_changed(object: LaserObjectData)
 signal stage_settings_changed(stage: LaserStageData)
@@ -11,6 +12,8 @@ signal request_delete_selected
 signal request_duplicate_selected
 signal custom_name_renamed(index: int, new_name: String)
 signal request_snap_stage_position()
+signal tile_paint_selected(tile_coord: Vector2i)
+signal tile_tool_mode_requested(tool_mode: int)
 
 const CUSTOM_TYPE_ID_BASE: int = 100
 
@@ -54,6 +57,32 @@ var stage_pos_y_spin: SpinBox
 var stage_pos_status_lbl: Label
 
 var stage_transition_dir_option: OptionButton
+var stage_board_img_edit: LineEdit
+var stage_slice_cols_spin: SpinBox
+var stage_slice_rows_spin: SpinBox
+var stage_img_file_dialog: FileDialog
+var stage_margin_l_spin: SpinBox
+var stage_margin_t_spin: SpinBox
+var stage_margin_r_spin: SpinBox
+var stage_margin_b_spin: SpinBox
+var stage_autodetect_btn: Button
+var stage_tile_borders_chk: CheckBox
+var stage_frame_pieces_lbl: Label
+
+var tab_tile_btn: Button
+var tile_section: VBoxContainer
+var tile_preview_size: int = 54
+var big_tile_dialog: AcceptDialog = null
+var big_dialog_grid: GridContainer = null
+var big_dialog_status: Label = null
+var big_dialog_buttons: Dictionary = {}
+var tile_status_lbl: Label
+var tile_preview_scroll: ScrollContainer
+var tile_grid_container: GridContainer
+var tile_buttons: Dictionary = {}
+var selected_tile_coord: Vector2i = Vector2i(0, 0)
+var tile_paint_btn: Button
+var tile_erase_btn: Button
 
 var lvl_id_spin: SpinBox
 var lvl_name_edit: LineEdit
@@ -123,6 +152,15 @@ func _setup_ui() -> void:
 	tab_lvl_btn.add_theme_font_size_override("font_size", 11)
 	tab_lvl_btn.pressed.connect(func(): _switch_tab(2))
 	tab_bar.add_child(tab_lvl_btn)
+
+	tab_tile_btn = Button.new()
+	tab_tile_btn.text = "🧩 Tiles"
+	tab_tile_btn.toggle_mode = true
+	tab_tile_btn.button_group = tab_group
+	tab_tile_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tab_tile_btn.add_theme_font_size_override("font_size", 11)
+	tab_tile_btn.pressed.connect(func(): _switch_tab(3))
+	tab_bar.add_child(tab_tile_btn)
 
 	obj_section = _create_section(main_vbox, "SELECTED OBJECT")
 
@@ -335,6 +373,304 @@ func _setup_ui() -> void:
 	trans_row.add_child(stage_transition_dir_option)
 	stage_section.add_child(trans_row)
 
+	# --- DEDICATED TILES SECTION (Only shown in '🧩 Tiles' Tab) ---
+	tile_section = _create_section(main_vbox, "BOARD TILEMAP STUDIO")
+
+	var board_hdr := Label.new()
+	board_hdr.text = "🧩 Board Image & Sliced Tilemap"
+	board_hdr.add_theme_font_size_override("font_size", 12)
+	board_hdr.modulate = Color(1.0, 0.85, 0.35)
+	tile_section.add_child(board_hdr)
+
+	var b_row := HBoxContainer.new()
+	stage_board_img_edit = LineEdit.new()
+	stage_board_img_edit.placeholder_text = "res://... or file path"
+	stage_board_img_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stage_board_img_edit.text_submitted.connect(_on_stage_board_img_changed)
+	b_row.add_child(stage_board_img_edit)
+
+	var b_browse := Button.new()
+	b_browse.text = "📂"
+	b_browse.tooltip_text = "Browse board image..."
+	b_browse.pressed.connect(func():
+		if stage_img_file_dialog != null:
+			stage_img_file_dialog.popup_centered_ratio(0.7)
+	)
+	b_row.add_child(b_browse)
+	tile_section.add_child(b_row)
+
+	stage_img_file_dialog = FileDialog.new()
+	stage_img_file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	stage_img_file_dialog.access = FileDialog.ACCESS_RESOURCES
+	stage_img_file_dialog.filters = PackedStringArray(["*.png, *.jpg, *.jpeg, *.webp ; Image Files", "* ; All Files"])
+	stage_img_file_dialog.file_selected.connect(func(path: String):
+		stage_board_img_edit.text = path
+		_on_stage_board_img_changed(path)
+	)
+	add_child(stage_img_file_dialog)
+
+	var b_slice_row := HBoxContainer.new()
+	var b_clbl := Label.new()
+	b_clbl.text = "Slice (Cols, Rows):"
+	b_slice_row.add_child(b_clbl)
+	stage_slice_cols_spin = SpinBox.new()
+	stage_slice_cols_spin.min_value = 1
+	stage_slice_cols_spin.max_value = 32
+	stage_slice_cols_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stage_slice_cols_spin.value_changed.connect(_on_stage_board_slice_changed)
+	b_slice_row.add_child(stage_slice_cols_spin)
+	stage_slice_rows_spin = SpinBox.new()
+	stage_slice_rows_spin.min_value = 1
+	stage_slice_rows_spin.max_value = 32
+	stage_slice_rows_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stage_slice_rows_spin.value_changed.connect(_on_stage_board_slice_changed)
+	b_slice_row.add_child(stage_slice_rows_spin)
+	tile_section.add_child(b_slice_row)
+
+	var m_hdr := Label.new()
+	m_hdr.text = "Frame Margins (L, T, R, B):"
+	m_hdr.add_theme_font_size_override("font_size", 11)
+	m_hdr.modulate = Color(0.8, 0.85, 0.95)
+	tile_section.add_child(m_hdr)
+
+	var m_row := HBoxContainer.new()
+	stage_margin_l_spin = SpinBox.new()
+	stage_margin_l_spin.min_value = 0
+	stage_margin_l_spin.max_value = 512
+	stage_margin_l_spin.prefix = "L:"
+	stage_margin_l_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stage_margin_l_spin.value_changed.connect(_on_stage_board_margins_changed)
+	m_row.add_child(stage_margin_l_spin)
+
+	stage_margin_t_spin = SpinBox.new()
+	stage_margin_t_spin.min_value = 0
+	stage_margin_t_spin.max_value = 512
+	stage_margin_t_spin.prefix = "T:"
+	stage_margin_t_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stage_margin_t_spin.value_changed.connect(_on_stage_board_margins_changed)
+	m_row.add_child(stage_margin_t_spin)
+
+	stage_margin_r_spin = SpinBox.new()
+	stage_margin_r_spin.min_value = 0
+	stage_margin_r_spin.max_value = 512
+	stage_margin_r_spin.prefix = "R:"
+	stage_margin_r_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stage_margin_r_spin.value_changed.connect(_on_stage_board_margins_changed)
+	m_row.add_child(stage_margin_r_spin)
+
+	stage_margin_b_spin = SpinBox.new()
+	stage_margin_b_spin.min_value = 0
+	stage_margin_b_spin.max_value = 512
+	stage_margin_b_spin.prefix = "B:"
+	stage_margin_b_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stage_margin_b_spin.value_changed.connect(_on_stage_board_margins_changed)
+	m_row.add_child(stage_margin_b_spin)
+	tile_section.add_child(m_row)
+
+	var m_actions := HBoxContainer.new()
+	stage_autodetect_btn = Button.new()
+	stage_autodetect_btn.text = "🎯 Auto-Detect Frame Margins"
+	stage_autodetect_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	stage_autodetect_btn.tooltip_text = "Automatically scan image borders and set frame margins"
+	stage_autodetect_btn.pressed.connect(_on_autodetect_margins_pressed)
+	m_actions.add_child(stage_autodetect_btn)
+
+	var m_reset_btn := Button.new()
+	m_reset_btn.text = "Reset (0)"
+	m_reset_btn.tooltip_text = "Reset margins to 0 (full texture)"
+	m_reset_btn.pressed.connect(func():
+		if current_stage != null:
+			current_stage.set_board_margins(0, 0, 0, 0)
+			_update_margin_spinboxes()
+			stage_settings_changed.emit(current_stage)
+			_rebuild_inspector_tile_preview()
+			_rebuild_big_dialog_tiles()
+	)
+	m_actions.add_child(m_reset_btn)
+	tile_section.add_child(m_actions)
+
+	var p_hdr := Label.new()
+	p_hdr.text = "Frame Piece Controls:"
+	p_hdr.add_theme_font_size_override("font_size", 11)
+	p_hdr.modulate = Color(0.8, 0.85, 0.95)
+	tile_section.add_child(p_hdr)
+
+	var p_row := HBoxContainer.new()
+	var toggle_t_btn := Button.new()
+	toggle_t_btn.text = "Top"
+	toggle_t_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	toggle_t_btn.tooltip_text = "Toggle all top border pieces"
+	toggle_t_btn.pressed.connect(func():
+		if current_stage != null:
+			current_stage.toggle_side_frame_pieces("T")
+			stage_settings_changed.emit(current_stage)
+			_update_frame_pieces_display()
+	)
+	p_row.add_child(toggle_t_btn)
+
+	var toggle_b_btn := Button.new()
+	toggle_b_btn.text = "Bottom"
+	toggle_b_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	toggle_b_btn.tooltip_text = "Toggle all bottom border pieces"
+	toggle_b_btn.pressed.connect(func():
+		if current_stage != null:
+			current_stage.toggle_side_frame_pieces("B")
+			stage_settings_changed.emit(current_stage)
+			_update_frame_pieces_display()
+	)
+	p_row.add_child(toggle_b_btn)
+
+	var toggle_l_btn := Button.new()
+	toggle_l_btn.text = "Left"
+	toggle_l_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	toggle_l_btn.tooltip_text = "Toggle all left border pieces"
+	toggle_l_btn.pressed.connect(func():
+		if current_stage != null:
+			current_stage.toggle_side_frame_pieces("L")
+			stage_settings_changed.emit(current_stage)
+			_update_frame_pieces_display()
+	)
+	p_row.add_child(toggle_l_btn)
+
+	var toggle_r_btn := Button.new()
+	toggle_r_btn.text = "Right"
+	toggle_r_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	toggle_r_btn.tooltip_text = "Toggle all right border pieces"
+	toggle_r_btn.pressed.connect(func():
+		if current_stage != null:
+			current_stage.toggle_side_frame_pieces("R")
+			stage_settings_changed.emit(current_stage)
+			_update_frame_pieces_display()
+	)
+	p_row.add_child(toggle_r_btn)
+
+	var restore_p_btn := Button.new()
+	restore_p_btn.text = "🔄 Restore"
+	restore_p_btn.tooltip_text = "Restore all hidden/deleted frame pieces"
+	restore_p_btn.pressed.connect(func():
+		if current_stage != null:
+			current_stage.clear_hidden_frame_pieces()
+			stage_settings_changed.emit(current_stage)
+			_update_frame_pieces_display()
+	)
+	p_row.add_child(restore_p_btn)
+	tile_section.add_child(p_row)
+
+	stage_frame_pieces_lbl = Label.new()
+	stage_frame_pieces_lbl.add_theme_font_size_override("font_size", 10)
+	stage_frame_pieces_lbl.modulate = Color(0.6, 0.8, 1.0)
+	stage_frame_pieces_lbl.text = "Tip: Click any border piece on canvas to delete or restore it!"
+	tile_section.add_child(stage_frame_pieces_lbl)
+
+	var b_actions := HBoxContainer.new()
+	var b_match_btn := Button.new()
+	b_match_btn.text = "🔄 Match Grid"
+	b_match_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b_match_btn.pressed.connect(func():
+		if current_stage != null:
+			stage_slice_cols_spin.value = current_stage.grid_width
+			stage_slice_rows_spin.value = current_stage.grid_height
+			_on_stage_board_slice_changed(0)
+	)
+	b_actions.add_child(b_match_btn)
+
+	var b_fill_btn := Button.new()
+	b_fill_btn.text = "⚡ Auto-Fill 1:1"
+	b_fill_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b_fill_btn.pressed.connect(func():
+		if current_stage != null:
+			current_stage.auto_fill_board_tiles()
+			stage_settings_changed.emit(current_stage)
+	)
+	b_actions.add_child(b_fill_btn)
+
+	var b_clr_btn := Button.new()
+	b_clr_btn.text = "❌ Clear Tiles"
+	b_clr_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	b_clr_btn.pressed.connect(func():
+		if current_stage != null:
+			current_stage.clear_all_board_tiles()
+			stage_settings_changed.emit(current_stage)
+			_rebuild_inspector_tile_preview()
+	)
+	b_actions.add_child(b_clr_btn)
+	tile_section.add_child(b_actions)
+
+	stage_tile_borders_chk = CheckBox.new()
+	stage_tile_borders_chk.text = "Show Tile Border Lines"
+	stage_tile_borders_chk.tooltip_text = "Toggle the grid border lines drawn on tiles"
+	stage_tile_borders_chk.button_pressed = true
+	stage_tile_borders_chk.toggled.connect(func(pressed: bool):
+		if current_stage != null:
+			current_stage.show_tile_borders = pressed
+			stage_settings_changed.emit(current_stage)
+	)
+	tile_section.add_child(stage_tile_borders_chk)
+
+	var b_tools := HBoxContainer.new()
+	tile_paint_btn = Button.new()
+	tile_paint_btn.text = "🖌️ Paint Tile"
+	tile_paint_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile_paint_btn.tooltip_text = "Activate tile paint mode"
+	tile_paint_btn.pressed.connect(func():
+		tile_paint_btn.modulate = Color(0.4, 1.2, 0.5)
+		tile_erase_btn.modulate = Color(1.0, 1.0, 1.0)
+		tile_paint_selected.emit(selected_tile_coord)
+		tile_tool_mode_requested.emit(5)
+	)
+	b_tools.add_child(tile_paint_btn)
+
+	tile_erase_btn = Button.new()
+	tile_erase_btn.text = "🧽 Erase Tile"
+	tile_erase_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile_erase_btn.tooltip_text = "Activate tile erase mode"
+	tile_erase_btn.pressed.connect(func():
+		tile_erase_btn.modulate = Color(1.2, 0.4, 0.4)
+		tile_paint_btn.modulate = Color(1.0, 1.0, 1.0)
+		tile_tool_mode_requested.emit(6)
+	)
+	b_tools.add_child(tile_erase_btn)
+	tile_section.add_child(b_tools)
+
+	var big_btn_row := HBoxContainer.new()
+	var open_big_btn := Button.new()
+	open_big_btn.text = "🔍 Open Big View"
+	open_big_btn.custom_minimum_size = Vector2(0, 36)
+	open_big_btn.modulate = Color(1.0, 0.9, 0.25)
+	open_big_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	open_big_btn.pressed.connect(_open_big_tile_dialog)
+	big_btn_row.add_child(open_big_btn)
+	tile_section.add_child(big_btn_row)
+
+	var sz_row := HBoxContainer.new()
+	var sz_lbl := Label.new()
+	sz_lbl.text = "Tile Size:"
+	sz_lbl.add_theme_font_size_override("font_size", 10)
+	sz_row.add_child(sz_lbl)
+	for sz in [36, 54, 72, 96]:
+		var sb := Button.new()
+		sb.text = "%dpx" % sz
+		sb.add_theme_font_size_override("font_size", 10)
+		sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		sb.pressed.connect(func():
+			tile_preview_size = sz
+			_rebuild_inspector_tile_preview()
+		)
+		sz_row.add_child(sb)
+	tile_section.add_child(sz_row)
+
+	tile_preview_scroll = ScrollContainer.new()
+	tile_preview_scroll.custom_minimum_size = Vector2(0, 240)
+	tile_preview_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile_preview_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	tile_section.add_child(tile_preview_scroll)
+
+	tile_grid_container = GridContainer.new()
+	tile_grid_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile_grid_container.add_theme_constant_override("h_separation", 4)
+	tile_grid_container.add_theme_constant_override("v_separation", 4)
+	tile_preview_scroll.add_child(tile_grid_container)
+
 	lvl_section = _create_section(main_vbox, "LEVEL & TIMERS")
 
 	var lvl_id_row := HBoxContainer.new()
@@ -401,12 +737,16 @@ func _switch_tab(idx: int) -> void:
 	tab_obj_btn.set_pressed_no_signal(idx == 0)
 	tab_stage_btn.set_pressed_no_signal(idx == 1)
 	tab_lvl_btn.set_pressed_no_signal(idx == 2)
+	if tab_tile_btn != null:
+		tab_tile_btn.set_pressed_no_signal(idx == 3)
 	if obj_section != null:
 		obj_section.visible = (idx == 0)
 	if stage_section != null:
 		stage_section.visible = (idx == 1)
 	if lvl_section != null:
 		lvl_section.visible = (idx == 2)
+	if tile_section != null:
+		tile_section.visible = (idx == 3)
 
 func _make_star_spin(parent: Control, label_text: String) -> SpinBox:
 	var vbox := VBoxContainer.new()
@@ -467,6 +807,17 @@ func set_stage(stage: LaserStageData) -> void:
 			if stage_transition_dir_option.get_item_id(i) == td:
 				stage_transition_dir_option.select(i)
 				break
+		if stage_board_img_edit != null:
+			stage_board_img_edit.text = stage.board_image_path
+		if stage_slice_cols_spin != null:
+			stage_slice_cols_spin.set_value_no_signal(stage.get_effective_slice_cols())
+		if stage_slice_rows_spin != null:
+			stage_slice_rows_spin.set_value_no_signal(stage.get_effective_slice_rows())
+		_update_margin_spinboxes()
+		if stage_tile_borders_chk != null:
+			stage_tile_borders_chk.set_pressed_no_signal(stage.show_tile_borders)
+		_update_frame_pieces_display()
+		_rebuild_inspector_tile_preview()
 	if selected_object == null and tab_stage_btn != null and tab_obj_btn != null and tab_obj_btn.button_pressed:
 		_switch_tab(1)
 
@@ -709,3 +1060,285 @@ func _on_level_data_changed(_v: float) -> void:
 		current_level.coin_reward_2 = int(coin_2_spin.value)
 		current_level.coin_reward_1 = int(coin_1_spin.value)
 		level_settings_changed.emit(current_level)
+
+func _on_stage_board_img_changed(txt: String) -> void:
+	if current_stage != null:
+		current_stage.board_image_path = txt.strip_edges()
+		stage_settings_changed.emit(current_stage)
+		_rebuild_inspector_tile_preview()
+
+func _on_stage_board_slice_changed(_v: float = 0) -> void:
+	if current_stage != null:
+		current_stage.board_slice_cols = int(stage_slice_cols_spin.value)
+		current_stage.board_slice_rows = int(stage_slice_rows_spin.value)
+		stage_settings_changed.emit(current_stage)
+		_rebuild_inspector_tile_preview()
+
+func _on_stage_board_margins_changed(_v: float = 0) -> void:
+	if current_stage != null and stage_margin_l_spin != null:
+		current_stage.set_board_margins(
+			int(stage_margin_l_spin.value),
+			int(stage_margin_t_spin.value),
+			int(stage_margin_r_spin.value),
+			int(stage_margin_b_spin.value)
+		)
+		stage_settings_changed.emit(current_stage)
+		_rebuild_inspector_tile_preview()
+		_rebuild_big_dialog_tiles()
+
+func _update_margin_spinboxes() -> void:
+	if current_stage != null:
+		if stage_margin_l_spin != null:
+			stage_margin_l_spin.set_value_no_signal(current_stage.board_margin_left)
+		if stage_margin_t_spin != null:
+			stage_margin_t_spin.set_value_no_signal(current_stage.board_margin_top)
+		if stage_margin_r_spin != null:
+			stage_margin_r_spin.set_value_no_signal(current_stage.board_margin_right)
+		if stage_margin_b_spin != null:
+			stage_margin_b_spin.set_value_no_signal(current_stage.board_margin_bottom)
+
+func _update_frame_pieces_display() -> void:
+	if stage_frame_pieces_lbl == null:
+		return
+	if current_stage == null or current_stage.hidden_frame_pieces.is_empty():
+		stage_frame_pieces_lbl.text = "Tip: Click any border piece on canvas to delete or restore it!"
+		stage_frame_pieces_lbl.modulate = Color(0.6, 0.8, 1.0)
+	else:
+		var preview_keys = current_stage.hidden_frame_pieces.slice(0, 4)
+		var joined = ", ".join(preview_keys)
+		if current_stage.hidden_frame_pieces.size() > 4:
+			joined += "..."
+		stage_frame_pieces_lbl.text = "Deleted Pieces: %d (%s) • Click canvas piece to toggle" % [
+			current_stage.hidden_frame_pieces.size(),
+			joined
+		]
+		stage_frame_pieces_lbl.modulate = Color(1.0, 0.7, 0.3)
+
+func _on_autodetect_margins_pressed() -> void:
+	if current_stage == null or current_stage.board_image_path.is_empty():
+		return
+	var tex := BoardLayoutManager.get_board_texture(current_stage.board_image_path)
+	if tex == null:
+		return
+	var det := BoardLayoutManager.auto_detect_board_margins(tex)
+	if det != Vector4i.ZERO:
+		current_stage.set_board_margins(det.x, det.y, det.z, det.w)
+		_update_margin_spinboxes()
+		stage_settings_changed.emit(current_stage)
+		_rebuild_inspector_tile_preview()
+		_rebuild_big_dialog_tiles()
+
+func _rebuild_inspector_tile_preview() -> void:
+	if tile_grid_container == null:
+		return
+	for c in tile_grid_container.get_children():
+		c.queue_free()
+	tile_buttons.clear()
+
+	if current_stage == null or current_stage.board_image_path.is_empty():
+		if tile_status_lbl != null:
+			tile_status_lbl.text = "No image selected. Enter image path above."
+			tile_status_lbl.modulate = Color(0.6, 0.6, 0.6)
+		return
+
+	var tex := BoardLayoutManager.get_board_texture(current_stage.board_image_path)
+	if tex == null:
+		if tile_status_lbl != null:
+			tile_status_lbl.text = "Could not load image at path:\n%s" % current_stage.board_image_path
+			tile_status_lbl.modulate = Color(1.0, 0.4, 0.4)
+		return
+
+	var cols := current_stage.get_effective_slice_cols()
+	var rows := current_stage.get_effective_slice_rows()
+	tile_grid_container.columns = cols
+	if tile_status_lbl != null:
+		tile_status_lbl.text = "Sliced %dx%d (%d tiles). Click tile to select & paint:" % [cols, rows, cols * rows]
+		tile_status_lbl.modulate = Color(0.4, 1.0, 0.5)
+
+	for y in range(rows):
+		for x in range(cols):
+			var btn := Button.new()
+			btn.custom_minimum_size = Vector2(tile_preview_size, tile_preview_size)
+			btn.tooltip_text = "Tile (%d, %d)" % [x, y]
+
+			var atlas := AtlasTexture.new()
+			atlas.atlas = tex
+			atlas.region = BoardLayoutManager.get_tile_src_rect(tex, x, y, cols, rows, current_stage.get_board_margins())
+			btn.icon = atlas
+			btn.expand_icon = true
+
+			var cur_c := Vector2i(x, y)
+			btn.pressed.connect(func():
+				selected_tile_coord = cur_c
+				_update_inspector_tile_highlights()
+				_update_big_dialog_highlights()
+				if tile_status_lbl != null:
+					tile_status_lbl.text = "Selected Tile (%d, %d) • Click stage grid cells to place!" % [cur_c.x, cur_c.y]
+					tile_status_lbl.modulate = Color(1.0, 0.9, 0.2)
+				tile_paint_selected.emit(cur_c)
+				tile_tool_mode_requested.emit(5)
+			)
+
+			tile_grid_container.add_child(btn)
+			tile_buttons[cur_c] = btn
+
+	_update_inspector_tile_highlights()
+
+func _update_inspector_tile_highlights() -> void:
+	for c in tile_buttons.keys():
+		var btn: Button = tile_buttons[c]
+		if is_instance_valid(btn):
+			if c == selected_tile_coord:
+				btn.modulate = Color(1.6, 1.5, 0.3)
+			else:
+				btn.modulate = Color(1.0, 1.0, 1.0)
+
+func _open_big_tile_dialog() -> void:
+	if big_tile_dialog == null:
+		_setup_big_tile_dialog()
+	_rebuild_big_dialog_tiles()
+	if big_tile_dialog.is_inside_tree():
+		big_tile_dialog.popup_centered(Vector2(700, 560))
+	else:
+		big_tile_dialog.visible = true
+
+func _setup_big_tile_dialog() -> void:
+	big_tile_dialog = AcceptDialog.new()
+	big_tile_dialog.title = "🧩 Sliced Tilemap Studio - Big View"
+	big_tile_dialog.ok_button_text = "Close"
+
+	var d_vbox := VBoxContainer.new()
+	d_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
+	d_vbox.add_theme_constant_override("separation", 8)
+
+	big_dialog_status = Label.new()
+	big_dialog_status.text = "Click any tile piece below to select, then click stage grid cells to place:"
+	big_dialog_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	big_dialog_status.add_theme_font_size_override("font_size", 13)
+	big_dialog_status.modulate = Color(1.0, 0.9, 0.3)
+	d_vbox.add_child(big_dialog_status)
+
+	var d_actions := HBoxContainer.new()
+	d_actions.alignment = BoxContainer.ALIGNMENT_CENTER
+	d_actions.add_theme_constant_override("separation", 8)
+
+	var d_paint := Button.new()
+	d_paint.text = "🖌️ Paint Mode"
+	d_paint.pressed.connect(func():
+		tile_paint_selected.emit(selected_tile_coord)
+		tile_tool_mode_requested.emit(5)
+		big_dialog_status.text = "Tile (%d, %d) selected! Click stage grid cells to place." % [selected_tile_coord.x, selected_tile_coord.y]
+	)
+	d_actions.add_child(d_paint)
+
+	var d_erase := Button.new()
+	d_erase.text = "🧽 Erase Mode"
+	d_erase.pressed.connect(func():
+		tile_tool_mode_requested.emit(6)
+		big_dialog_status.text = "Erase Mode active! Click stage grid cells to remove tiles."
+	)
+	d_actions.add_child(d_erase)
+
+	var af_btn := Button.new()
+	af_btn.text = "⚡ Auto-Fill 1:1"
+	af_btn.pressed.connect(func():
+		if current_stage != null:
+			current_stage.auto_fill_board_tiles()
+			stage_settings_changed.emit(current_stage)
+			_rebuild_inspector_tile_preview()
+			_rebuild_big_dialog_tiles()
+	)
+	d_actions.add_child(af_btn)
+
+	var clr_btn := Button.new()
+	clr_btn.text = "❌ Clear Tiles"
+	clr_btn.pressed.connect(func():
+		if current_stage != null:
+			current_stage.clear_all_board_tiles()
+			stage_settings_changed.emit(current_stage)
+			_rebuild_inspector_tile_preview()
+			_rebuild_big_dialog_tiles()
+	)
+	d_actions.add_child(clr_btn)
+	d_vbox.add_child(d_actions)
+
+	var d_scroll := ScrollContainer.new()
+	d_scroll.custom_minimum_size = Vector2(660, 420)
+	d_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	d_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	d_vbox.add_child(d_scroll)
+
+	var center_box := CenterContainer.new()
+	center_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	center_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	d_scroll.add_child(center_box)
+
+	big_dialog_grid = GridContainer.new()
+	big_dialog_grid.add_theme_constant_override("h_separation", 8)
+	big_dialog_grid.add_theme_constant_override("v_separation", 8)
+	center_box.add_child(big_dialog_grid)
+
+	big_tile_dialog.add_child(d_vbox)
+	add_child(big_tile_dialog)
+
+func _rebuild_big_dialog_tiles() -> void:
+	if big_dialog_grid == null:
+		return
+	for c in big_dialog_grid.get_children():
+		c.queue_free()
+	big_dialog_buttons.clear()
+
+	if current_stage == null or current_stage.board_image_path.is_empty():
+		big_dialog_status.text = "No image loaded. Please set board image path first."
+		return
+
+	var tex := BoardLayoutManager.get_board_texture(current_stage.board_image_path)
+	if tex == null:
+		big_dialog_status.text = "Could not load image at path: %s" % current_stage.board_image_path
+		return
+
+	var cols := current_stage.get_effective_slice_cols()
+	var rows := current_stage.get_effective_slice_rows()
+	big_dialog_grid.columns = cols
+	big_dialog_status.text = "Sliced %dx%d (%d tiles) • Click any piece to select & paint:" % [cols, rows, cols * rows]
+
+	var big_size := 76.0
+
+	for y in range(rows):
+		for x in range(cols):
+			var btn := Button.new()
+			btn.custom_minimum_size = Vector2(big_size, big_size)
+			btn.tooltip_text = "Tile (%d, %d)" % [x, y]
+
+			var atlas := AtlasTexture.new()
+			atlas.atlas = tex
+			atlas.region = BoardLayoutManager.get_tile_src_rect(tex, x, y, cols, rows, current_stage.get_board_margins())
+			btn.icon = atlas
+			btn.expand_icon = true
+
+			var cur_c := Vector2i(x, y)
+			btn.pressed.connect(func():
+				selected_tile_coord = cur_c
+				_update_inspector_tile_highlights()
+				_update_big_dialog_highlights()
+				big_dialog_status.text = "Selected Tile (%d, %d) • Click stage grid cells to place!" % [cur_c.x, cur_c.y]
+				tile_paint_selected.emit(cur_c)
+				tile_tool_mode_requested.emit(5)
+			)
+
+			big_dialog_grid.add_child(btn)
+			big_dialog_buttons[cur_c] = btn
+
+	_update_big_dialog_highlights()
+
+func _update_big_dialog_highlights() -> void:
+	for c in big_dialog_buttons.keys():
+		var btn: Button = big_dialog_buttons[c]
+		if is_instance_valid(btn):
+			if c == selected_tile_coord:
+				btn.modulate = Color(1.8, 1.6, 0.2)
+			else:
+				btn.modulate = Color(1.0, 1.0, 1.0)
+
+
+

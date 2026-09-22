@@ -255,6 +255,11 @@ func select_item(type: LaserObjectData.ObjectType) -> void:
 			select_custom_element(active_custom_index)
 			return
 	selected_type = type
+	if type == LaserObjectData.ObjectType.MOVABLE_AREA:
+		if selected_color == Color.RED or selected_color == Color(1.0, 0.2, 0.2, 1.0):
+			selected_color = Color(0.2, 0.65, 1.0, 1.0)
+			if color_picker_btn != null:
+				color_picker_btn.color = selected_color
 	if custom_name_edit != null:
 		custom_name_edit.editable = false
 	if custom_scene_edit != null:

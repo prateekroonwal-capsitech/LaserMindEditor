@@ -9,12 +9,16 @@ signal object_modified(object: LaserObjectData)
 signal stage_dirty_needed
 signal stage_activated(stage_index: int)
 
+const BoardLayoutManager = preload("res://Game/Scripts/board_layout_manager.gd")
+
 enum ToolMode {
 	SELECT,
 	PAINT,
 	MOVE,
 	ROTATE,
-	ERASE
+	ERASE,
+	TILE_PAINT,
+	TILE_ERASE
 }
 
 const STAGE_GAP_CELLS: int = 4
@@ -33,6 +37,7 @@ var active_palette_type: LaserObjectData.ObjectType = LaserObjectData.ObjectType
 var active_palette_rot: int = 0
 var active_palette_color: Color = Color.RED
 var active_palette_custom_data: Dictionary = {}
+var active_tile_coord: Vector2i = Vector2i(0, 0)
 
 var zoom_level: float = 1.0
 var pan_offset: Vector2 = Vector2(100, 80)
@@ -45,6 +50,8 @@ var pan_start_mouse: Vector2 = Vector2.ZERO
 var pan_start_offset: Vector2 = Vector2.ZERO
 var hovered_stage_idx: int = -1
 var hovered_cell: Vector2i = Vector2i(-1, -1)
+var hovered_frame_piece: String = ""
+var hovered_frame_stage: LaserStageData = null
 var selected_objects: Array[LaserObjectData] = []
 var drag_object: LaserObjectData = null
 var drag_start_cell: Vector2i = Vector2i.ZERO
@@ -53,6 +60,11 @@ var is_dragging_object: bool = false
 var is_box_selecting: bool = false
 var box_select_start: Vector2 = Vector2.ZERO
 var box_select_current: Vector2 = Vector2.ZERO
+var is_brush_painting: bool = false
+var is_brush_erasing: bool = false
+var last_painted_cell: Vector2i = Vector2i(-999, -999)
+var last_painted_stage: LaserStageData = null
+var brush_snapshot: LaserStageData = null
 var undo_manager: LevelEditorUndoManager = null
 
 func _init() -> void:
@@ -127,8 +139,18 @@ func get_stage_rect_in_cells(stage_idx: int) -> Rect2i:
 
 	return Rect2i(0, 0, 6, 6)
 
+func get_visible_stages() -> Array[LaserStageData]:
+	var res: Array[LaserStageData] = []
+	if is_side_by_side:
+		for s in stages:
+			if s != null:
+				res.append(s)
+	elif current_stage != null:
+		res.append(current_stage)
+	return res
+
 func get_total_bounding_rect_cells() -> Rect2i:
-	var visible_stages = stages if is_side_by_side else ([current_stage] if current_stage != null else [])
+	var visible_stages = get_visible_stages()
 	if visible_stages.is_empty():
 		return Rect2i(0, 0, 6, 6)
 
@@ -334,6 +356,10 @@ func _gui_input(event: InputEvent) -> void:
 						current_stage_idx = st.stage_index
 						current_stage = st
 						stage_activated.emit(current_stage_idx)
+					if current_tool == ToolMode.TILE_PAINT:
+						_erase_board_tile(st, cell)
+						accept_event()
+						return
 					var obj = st.get_object_at(cell)
 					if obj != null:
 						var snap = st.duplicate_data() if undo_manager != null else null
@@ -355,6 +381,20 @@ func _gui_input(event: InputEvent) -> void:
 		elif is_box_selecting:
 			box_select_current = mm.position
 			queue_redraw()
+		elif is_brush_painting:
+			var hit = screen_to_stage_and_cell(mm.position)
+			if hit.inside and (hit.cell != last_painted_cell or hit.stage != last_painted_stage):
+				if current_tool == ToolMode.TILE_PAINT:
+					_paint_board_tile(hit.stage, hit.cell)
+				else:
+					_paint_cell(hit.stage, hit.cell)
+		elif is_brush_erasing:
+			var hit = screen_to_stage_and_cell(mm.position)
+			if hit.inside and (hit.cell != last_painted_cell or hit.stage != last_painted_stage):
+				if current_tool == ToolMode.TILE_ERASE:
+					_erase_board_tile(hit.stage, hit.cell)
+				else:
+					_erase_cell(hit.stage, hit.cell)
 		elif is_dragging_object and drag_object != null and current_stage != null:
 			var hit = screen_to_stage_and_cell(mm.position)
 			if hit.inside and hit.stage == current_stage:
@@ -365,15 +405,46 @@ func _gui_input(event: InputEvent) -> void:
 					queue_redraw()
 		else:
 			var hit = screen_to_stage_and_cell(mm.position)
+			var old_hp := hovered_frame_piece
+			var old_hs := hovered_frame_stage
 			if hit.inside:
+				hovered_frame_piece = ""
+				hovered_frame_stage = null
 				if hit.stage_idx != hovered_stage_idx or hit.cell != hovered_cell:
 					hovered_stage_idx = hit.stage_idx
 					hovered_cell = hit.cell
+					queue_redraw()
+				elif old_hp != "":
 					queue_redraw()
 			else:
 				if hovered_stage_idx != -1 or hovered_cell != Vector2i(-1, -1):
 					hovered_stage_idx = -1
 					hovered_cell = Vector2i(-1, -1)
+				var found_piece := ""
+				var found_stage: LaserStageData = null
+				var c_sz := cell_size * zoom_level
+				for st in get_visible_stages():
+					if st != null and st.has_board_margins() and not st.board_image_path.is_empty():
+						var b_tex := BoardLayoutManager.get_board_texture(st.board_image_path)
+						if b_tex != null:
+							var r = get_stage_rect_in_cells(st.stage_index)
+							var b_pos = pan_offset + Vector2(r.position) * c_sz
+							var b_sz = Vector2(r.size) * c_sz
+							var piece := BoardLayoutManager.get_frame_piece_at_point(
+								mm.position,
+								Rect2(b_pos, b_sz),
+								st.get_board_margins(),
+								b_tex.get_size(),
+								st.grid_width,
+								st.grid_height
+							)
+							if not piece.is_empty():
+								found_piece = piece
+								found_stage = st
+								break
+				if found_piece != hovered_frame_piece or found_stage != hovered_frame_stage:
+					hovered_frame_piece = found_piece
+					hovered_frame_stage = found_stage
 					queue_redraw()
 
 func _handle_left_click(mb: InputEventMouseButton) -> void:
@@ -383,6 +454,41 @@ func _handle_left_click(mb: InputEventMouseButton) -> void:
 			grab_focus()
 
 		if not hit.inside:
+			var c_sz := cell_size * zoom_level
+			var clicked_frame_piece := ""
+			var target_st: LaserStageData = null
+			for st in get_visible_stages():
+				if st != null and st.has_board_margins() and not st.board_image_path.is_empty():
+					var b_tex := BoardLayoutManager.get_board_texture(st.board_image_path)
+					if b_tex != null:
+						var r = get_stage_rect_in_cells(st.stage_index)
+						var b_pos = pan_offset + Vector2(r.position) * c_sz
+						var b_sz = Vector2(r.size) * c_sz
+						var piece := BoardLayoutManager.get_frame_piece_at_point(
+							mb.position,
+							Rect2(b_pos, b_sz),
+							st.get_board_margins(),
+							b_tex.get_size(),
+							st.grid_width,
+							st.grid_height
+						)
+						if not piece.is_empty():
+							clicked_frame_piece = piece
+							target_st = st
+							break
+			if not clicked_frame_piece.is_empty() and target_st != null:
+				if target_st.stage_index != current_stage_idx:
+					current_stage_idx = target_st.stage_index
+					current_stage = target_st
+					stage_activated.emit(current_stage_idx)
+				var snap = target_st.duplicate_data() if undo_manager != null else null
+				target_st.toggle_frame_piece(clicked_frame_piece)
+				if undo_manager != null and snap != null:
+					undo_manager.commit_snapshot(snap, target_st)
+				stage_dirty_needed.emit()
+				queue_redraw()
+				return
+
 			if not Input.is_key_pressed(KEY_CTRL):
 				selected_objects.clear()
 				selection_changed.emit(selected_objects)
@@ -423,38 +529,8 @@ func _handle_left_click(mb: InputEventMouseButton) -> void:
 				queue_redraw()
 
 			ToolMode.PAINT:
-				var snap = st.duplicate_data() if undo_manager != null else null
-				var existing = st.get_object_at(cell)
-				if existing != null:
-					st.remove_object(existing)
-				var new_obj = LaserObjectData.create(active_palette_type, cell, active_palette_rot)
-				new_obj.color = active_palette_color
-				if active_palette_type == LaserObjectData.ObjectType.CUSTOM:
-					var c_data = active_palette_custom_data
-					if c_data.is_empty():
-						var all_elems = CustomElementsManager.load_elements()
-						if not all_elems.is_empty():
-							c_data = all_elems[0]
-					if not c_data.is_empty():
-						new_obj.properties["custom_id"] = c_data.get("id", "custom_1")
-						new_obj.properties["custom_name"] = c_data.get("name", "Custom")
-						new_obj.properties["custom_index"] = c_data.get("index", 0)
-						new_obj.properties["scene_path"] = c_data.get("scene_path", "")
-						if c_data.has("color"):
-							new_obj.color = c_data["color"]
-					else:
-						new_obj.properties["custom_name"] = "Custom"
-						new_obj.properties["scene_path"] = ""
-
-				st.add_object(new_obj)
-				selected_objects = [new_obj]
-				object_selected.emit(new_obj)
-				selection_changed.emit(selected_objects)
-				recalculate_simulation()
-				if undo_manager != null and snap != null:
-					undo_manager.commit_snapshot(snap, st)
-				stage_dirty_needed.emit()
-				queue_redraw()
+				is_brush_painting = true
+				_paint_cell(st, cell)
 
 			ToolMode.ROTATE:
 				var obj = st.get_object_at(cell)
@@ -469,13 +545,16 @@ func _handle_left_click(mb: InputEventMouseButton) -> void:
 					queue_redraw()
 
 			ToolMode.ERASE:
-				var snap = st.duplicate_data() if undo_manager != null else null
-				if st.remove_object_at(cell):
-					recalculate_simulation()
-					if undo_manager != null and snap != null:
-						undo_manager.commit_snapshot(snap, st)
-					stage_dirty_needed.emit()
-					queue_redraw()
+				is_brush_erasing = true
+				_erase_cell(st, cell)
+
+			ToolMode.TILE_PAINT:
+				is_brush_painting = true
+				_paint_board_tile(st, cell)
+
+			ToolMode.TILE_ERASE:
+				is_brush_erasing = true
+				_erase_board_tile(st, cell)
 
 			ToolMode.MOVE:
 				var obj = st.get_object_at(cell)
@@ -486,6 +565,15 @@ func _handle_left_click(mb: InputEventMouseButton) -> void:
 					is_dragging_object = true
 
 	else:
+		if is_brush_painting or is_brush_erasing:
+			if undo_manager != null and brush_snapshot != null and current_stage != null:
+				undo_manager.commit_snapshot(brush_snapshot, current_stage)
+			is_brush_painting = false
+			is_brush_erasing = false
+			last_painted_cell = Vector2i(-999, -999)
+			last_painted_stage = null
+			brush_snapshot = null
+
 		if is_dragging_object:
 			if drag_object != null and drag_object.grid_pos != drag_start_cell:
 				if undo_manager != null and drag_start_snapshot != null and current_stage != null:
@@ -502,6 +590,99 @@ func _handle_left_click(mb: InputEventMouseButton) -> void:
 			is_box_selecting = false
 			_finish_box_select()
 			queue_redraw()
+
+func _paint_cell(st: LaserStageData, cell: Vector2i) -> void:
+	if st == null or not st.is_inside_grid(cell):
+		return
+	last_painted_cell = cell
+	last_painted_stage = st
+
+	var snap = st.duplicate_data() if undo_manager != null else null
+
+	if active_palette_type == LaserObjectData.ObjectType.MOVABLE_AREA:
+		var existing_area = st.get_movable_area_at(cell)
+		if existing_area != null:
+			existing_area.color = active_palette_color
+			object_modified.emit(existing_area)
+		else:
+			var new_area = LaserObjectData.create(LaserObjectData.ObjectType.MOVABLE_AREA, cell, 0)
+			new_area.color = active_palette_color
+			st.add_object(new_area)
+			selected_objects = [new_area]
+			object_selected.emit(new_area)
+			selection_changed.emit(selected_objects)
+	else:
+		var existing_fg = st.get_foreground_object_at(cell)
+		if existing_fg != null:
+			st.remove_object(existing_fg)
+
+		var new_obj = LaserObjectData.create(active_palette_type, cell, active_palette_rot)
+		new_obj.color = active_palette_color
+		if active_palette_type == LaserObjectData.ObjectType.CUSTOM:
+			var c_data = active_palette_custom_data
+			if c_data.is_empty():
+				var all_elems = CustomElementsManager.load_elements()
+				if not all_elems.is_empty():
+					c_data = all_elems[0]
+			if not c_data.is_empty():
+				new_obj.properties["custom_id"] = c_data.get("id", "custom_1")
+				new_obj.properties["custom_name"] = c_data.get("name", "Custom")
+				new_obj.properties["custom_index"] = c_data.get("index", 0)
+				new_obj.properties["scene_path"] = c_data.get("scene_path", "")
+				if c_data.has("color"):
+					new_obj.color = c_data["color"]
+			else:
+				new_obj.properties["custom_name"] = "Custom"
+				new_obj.properties["scene_path"] = ""
+
+		st.add_object(new_obj)
+		selected_objects = [new_obj]
+		object_selected.emit(new_obj)
+		selection_changed.emit(selected_objects)
+
+	recalculate_simulation()
+	if undo_manager != null and snap != null:
+		undo_manager.commit_snapshot(snap, st)
+	stage_dirty_needed.emit()
+	queue_redraw()
+
+func _erase_cell(st: LaserStageData, cell: Vector2i) -> void:
+	if st == null or not st.is_inside_grid(cell):
+		return
+	last_painted_cell = cell
+	last_painted_stage = st
+	var snap = st.duplicate_data() if undo_manager != null else null
+	var target = st.get_movable_area_at(cell) if active_palette_type == LaserObjectData.ObjectType.MOVABLE_AREA else (st.get_foreground_object_at(cell) if st.get_foreground_object_at(cell) != null else st.get_object_at(cell))
+	if target != null and st.remove_object(target):
+		recalculate_simulation()
+		if undo_manager != null and snap != null:
+			undo_manager.commit_snapshot(snap, st)
+		stage_dirty_needed.emit()
+		queue_redraw()
+
+func _paint_board_tile(st: LaserStageData, cell: Vector2i) -> void:
+	if st == null or not st.is_inside_grid(cell):
+		return
+	last_painted_cell = cell
+	last_painted_stage = st
+	var snap = st.duplicate_data() if undo_manager != null else null
+	st.set_board_tile(cell, active_tile_coord)
+	if undo_manager != null and snap != null:
+		undo_manager.commit_snapshot(snap, st)
+	stage_dirty_needed.emit()
+	queue_redraw()
+
+func _erase_board_tile(st: LaserStageData, cell: Vector2i) -> void:
+	if st == null or not st.is_inside_grid(cell):
+		return
+	last_painted_cell = cell
+	last_painted_stage = st
+	var snap = st.duplicate_data() if undo_manager != null else null
+	st.remove_board_tile(cell)
+	if undo_manager != null and snap != null:
+		undo_manager.commit_snapshot(snap, st)
+	stage_dirty_needed.emit()
+	queue_redraw()
 
 func _finish_box_select() -> void:
 	var rect := Rect2(box_select_start, box_select_current - box_select_start).abs()
@@ -562,6 +743,51 @@ func _draw() -> void:
 		var bg_col = Color(0.16, 0.18, 0.22, 1.0) if is_active else Color(0.13, 0.14, 0.17, 0.95)
 		draw_rect(Rect2(board_pos, board_sz), bg_col)
 
+		var board_tex: Texture2D = BoardLayoutManager.get_board_texture(st.board_image_path) if not st.board_image_path.is_empty() else null
+		var b_cols := st.get_effective_slice_cols()
+		var b_rows := st.get_effective_slice_rows()
+		var b_margins := st.get_board_margins()
+
+		if board_tex != null and st.has_board_margins():
+			BoardLayoutManager.draw_board_ninepatch_frame(
+				self,
+				board_tex,
+				Rect2(board_pos, board_sz),
+				b_margins,
+				st.grid_width,
+				st.grid_height,
+				st.hidden_frame_pieces
+			)
+
+			if st.hidden_frame_pieces.size() > 0:
+				var all_p := BoardLayoutManager.get_frame_piece_rects(
+					Rect2(board_pos, board_sz),
+					b_margins,
+					board_tex.get_size(),
+					st.grid_width,
+					st.grid_height
+				)
+				for hp in st.hidden_frame_pieces:
+					if all_p.has(hp):
+						var hr: Rect2 = all_p[hp]
+						draw_rect(hr, Color(0.85, 0.25, 0.25, 0.08), true)
+						draw_rect(hr, Color(0.85, 0.25, 0.25, 0.3), false, 1.0)
+
+			if hovered_frame_stage == st and not hovered_frame_piece.is_empty():
+				var p_rects := BoardLayoutManager.get_frame_piece_rects(
+					Rect2(board_pos, board_sz),
+					b_margins,
+					board_tex.get_size(),
+					st.grid_width,
+					st.grid_height
+				)
+				if p_rects.has(hovered_frame_piece):
+					var hr: Rect2 = p_rects[hovered_frame_piece]
+					var is_hidden := st.is_frame_piece_hidden(hovered_frame_piece)
+					var h_col := Color(0.2, 0.9, 0.4, 0.45) if is_hidden else Color(1.0, 0.3, 0.2, 0.45)
+					draw_rect(hr, h_col, true)
+					draw_rect(hr, Color(h_col.r, h_col.g, h_col.b, 0.95), false, 2.0 * zoom_level)
+
 		for x in range(st.grid_width):
 			for y in range(st.grid_height):
 				var cell_rect := Rect2(board_pos + Vector2(x, y) * c_sz, Vector2(c_sz, c_sz))
@@ -572,14 +798,35 @@ func _draw() -> void:
 				else:
 					tile_col = Color(0.15, 0.16, 0.19, 1.0) if is_even else Color(0.12, 0.13, 0.16, 1.0)
 				draw_rect(cell_rect, tile_col)
-				var border_col = Color(0.24, 0.27, 0.33, 0.35) if is_active else Color(0.20, 0.22, 0.26, 0.25)
-				draw_rect(cell_rect, border_col, false, 1.0)
+
+				if board_tex != null and st.has_board_tile(Vector2i(x, y)):
+					var tc := st.get_board_tile(Vector2i(x, y))
+					if tc.x >= 0 and tc.y >= 0:
+						var s_rect := BoardLayoutManager.get_tile_src_rect(board_tex, tc.x, tc.y, b_cols, b_rows, b_margins)
+						draw_texture_rect_region(board_tex, cell_rect, s_rect)
+
+				if st.show_tile_borders:
+					var border_col = Color(0.24, 0.27, 0.33, 0.35) if is_active else Color(0.20, 0.22, 0.26, 0.25)
+					draw_rect(cell_rect, border_col, false, 1.0)
+
+		var outer_bounds = Rect2(board_pos, board_sz)
+		if board_tex != null and st.has_board_margins():
+			var sz := board_tex.get_size()
+			var L := float(b_margins.x)
+			var T := float(b_margins.y)
+			var R := float(b_margins.z)
+			var B := float(b_margins.w)
+			var inner_w := maxf(1.0, sz.x - L - R)
+			var inner_h := maxf(1.0, sz.y - T - B)
+			var sx: float = board_sz.x / inner_w
+			var sy: float = board_sz.y / inner_h
+			outer_bounds = Rect2(board_pos.x - L * sx, board_pos.y - T * sy, board_sz.x + (L + R) * sx, board_sz.y + (T + B) * sy)
 
 		if is_active:
-			draw_rect(Rect2(board_pos, board_sz).grow(2.0 * zoom_level), Color(1.0, 0.82, 0.2, 0.85), false, 2.5 * zoom_level)
-			draw_rect(Rect2(board_pos, board_sz).grow(4.0 * zoom_level), Color(1.0, 0.82, 0.2, 0.25), false, 1.5 * zoom_level)
+			draw_rect(outer_bounds.grow(2.0 * zoom_level), Color(1.0, 0.82, 0.2, 0.85), false, 2.5 * zoom_level)
+			draw_rect(outer_bounds.grow(4.0 * zoom_level), Color(1.0, 0.82, 0.2, 0.25), false, 1.5 * zoom_level)
 		else:
-			draw_rect(Rect2(board_pos, board_sz), Color(0.26, 0.30, 0.36, 0.6), false, 1.5)
+			draw_rect(outer_bounds, Color(0.26, 0.30, 0.36, 0.6), false, 1.5)
 
 		if show_grid_coords and zoom_level > 0.55:
 			var coord_col := Color(0.75, 0.80, 0.90)
@@ -641,8 +888,19 @@ func _draw() -> void:
 			draw_rect(h_rect, Color(1.0, 1.0, 1.0, 0.12), false, 1.5)
 
 			if current_tool == ToolMode.PAINT:
-				var center = board_pos + (Vector2(hovered_cell) + Vector2(0.5, 0.5)) * c_sz
-				draw_circle(center, 8.0 * zoom_level, Color(active_palette_color.r, active_palette_color.g, active_palette_color.b, 0.45))
+				if active_palette_type == LaserObjectData.ObjectType.MOVABLE_AREA:
+					var p_col = active_palette_color if active_palette_color.a > 0.05 else Color(0.2, 0.65, 1.0, 1.0)
+					draw_rect(h_rect.grow(-2.0 * zoom_level), Color(p_col.r, p_col.g, p_col.b, 0.35), true)
+					draw_rect(h_rect.grow(-2.0 * zoom_level), Color(p_col.r, p_col.g, p_col.b, 0.85), false, 1.5 * zoom_level)
+				else:
+					var center = board_pos + (Vector2(hovered_cell) + Vector2(0.5, 0.5)) * c_sz
+					draw_circle(center, 8.0 * zoom_level, Color(active_palette_color.r, active_palette_color.g, active_palette_color.b, 0.45))
+			elif current_tool == ToolMode.TILE_PAINT and board_tex != null:
+				var s_rect := BoardLayoutManager.get_tile_src_rect(board_tex, active_tile_coord.x, active_tile_coord.y, b_cols, b_rows, b_margins)
+				draw_texture_rect_region(board_tex, h_rect, s_rect, Color(1.0, 1.0, 1.0, 0.65))
+				draw_rect(h_rect, Color(1.0, 0.9, 0.2, 0.85), false, 2.0 * zoom_level)
+			elif current_tool == ToolMode.TILE_ERASE:
+				draw_rect(h_rect, Color(1.0, 0.2, 0.2, 0.6), false, 2.0 * zoom_level)
 
 		if is_side_by_side and idx < visible_stages.size() - 1:
 			var next_st = visible_stages[idx + 1]
@@ -716,13 +974,14 @@ func _draw_puzzle_object(obj: LaserObjectData, c_sz: float, stage_offset: Vector
 			draw_line(p1, p2, Color(0.9, 1.0, 0.9), 3.0 * zoom_level)
 
 		LaserObjectData.ObjectType.MOVABLE_AREA:
+			var col: Color = obj.color if (obj.color != Color(1.0, 0.2, 0.2, 1.0) and obj.color.a > 0.05) else Color(0.18, 0.62, 0.98, 1.0)
 			var tile_rect = Rect2(pan_offset + (Vector2(stage_offset) + Vector2(obj.grid_pos)) * c_sz, Vector2(c_sz, c_sz))
-			draw_rect(tile_rect.grow(-3), Color(0.12, 0.45, 0.75, 0.35), true)
-			draw_rect(tile_rect.grow(-3), Color(0.35, 0.85, 1.0, 0.8), false, 1.5 * zoom_level)
+			draw_rect(tile_rect.grow(-2.0 * zoom_level), Color(col.r, col.g, col.b, 0.32), true)
+			draw_rect(tile_rect.grow(-2.0 * zoom_level), Color(col.r, col.g, col.b, 0.85), false, 1.5 * zoom_level)
 			var m_rad = rad * 0.35
-			draw_arc(center, m_rad, 0, TAU, 12, Color(0.35, 0.85, 1.0, 0.6), 1.2 * zoom_level)
-			draw_line(center - Vector2(m_rad, 0), center + Vector2(m_rad, 0), Color(0.35, 0.85, 1.0, 0.6), 1.0 * zoom_level)
-			draw_line(center - Vector2(0, m_rad), center + Vector2(0, m_rad), Color(0.35, 0.85, 1.0, 0.6), 1.0 * zoom_level)
+			draw_arc(center, m_rad, 0, TAU, 12, col, 1.2 * zoom_level)
+			draw_line(center - Vector2(m_rad, 0), center + Vector2(m_rad, 0), col, 1.0 * zoom_level)
+			draw_line(center - Vector2(0, m_rad), center + Vector2(0, m_rad), col, 1.0 * zoom_level)
 
 		LaserObjectData.ObjectType.ROCK:
 			var pts: PackedVector2Array = [

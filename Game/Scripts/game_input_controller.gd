@@ -13,8 +13,14 @@ signal object_rotated(obj: LaserObjectData)
 signal object_dragged(obj: LaserObjectData)
 signal drag_ended()
 
+var candidate_object: LaserObjectData = null
+var candidate_start_pos: Vector2 = Vector2.ZERO
+var candidate_start_cell: Vector2i = Vector2i.ZERO
+var is_actively_dragging: bool = false
 var dragged_object: LaserObjectData = null
 var drag_start_cell: Vector2i = Vector2i.ZERO
+
+const DRAG_THRESHOLD: float = 8.0
 
 func handle_input(
 	event: InputEvent,
@@ -56,10 +62,10 @@ func handle_input(
 			_handle_press(st.position, current_stage, grid_origin, cell_size, stage_cleared)
 		else:
 			_handle_release()
-	elif event is InputEventMouseMotion and dragged_object != null:
+	elif event is InputEventMouseMotion and candidate_object != null:
 		var mm := event as InputEventMouseMotion
 		_handle_drag(mm.position, current_stage, grid_origin, cell_size)
-	elif event is InputEventScreenDrag and dragged_object != null:
+	elif event is InputEventScreenDrag and candidate_object != null:
 		var sd := event as InputEventScreenDrag
 		_handle_drag(sd.position, current_stage, grid_origin, cell_size)
 
@@ -81,19 +87,25 @@ func _handle_press(
 	if not current_stage.is_inside_grid(cell):
 		return
 
-	var obj = current_stage.get_object_at(cell)
+	var obj = current_stage.get_foreground_object_at(cell) if current_stage.has_method("get_foreground_object_at") else current_stage.get_object_at(cell)
 	if obj != null:
-		if obj.rotatable:
-			obj.rotation_deg = (obj.rotation_deg + 45) % 360
-			object_rotated.emit(obj)
-		elif obj.movable:
-			dragged_object = obj
-			drag_start_cell = obj.grid_pos
+		candidate_object = obj
+		candidate_start_pos = screen_pos
+		candidate_start_cell = obj.grid_pos
+		is_actively_dragging = false
+		dragged_object = null
 
 func _handle_release() -> void:
-	if dragged_object != null:
-		dragged_object = null
+	if is_actively_dragging:
 		drag_ended.emit()
+	elif candidate_object != null:
+		if candidate_object.rotatable:
+			candidate_object.rotation_deg = (candidate_object.rotation_deg + 45) % 360
+			object_rotated.emit(candidate_object)
+
+	candidate_object = null
+	dragged_object = null
+	is_actively_dragging = false
 
 func _handle_drag(
 	screen_pos: Vector2,
@@ -101,19 +113,21 @@ func _handle_drag(
 	grid_origin: Vector2,
 	cell_size: Vector2
 ) -> void:
-	if current_stage == null or dragged_object == null:
+	if current_stage == null or candidate_object == null:
 		return
 
 	var target_cell := BoardLayoutManager.world_to_grid(screen_pos, grid_origin, cell_size)
-	if not current_stage.is_inside_grid(target_cell):
-		return
+	if not is_actively_dragging:
+		if screen_pos.distance_to(candidate_start_pos) >= DRAG_THRESHOLD or target_cell != candidate_start_cell:
+			var can_move = candidate_object.type not in [LaserObjectData.ObjectType.LASER_SOURCE, LaserObjectData.ObjectType.GATE, LaserObjectData.ObjectType.EXIT_GATE, LaserObjectData.ObjectType.MOVABLE_AREA] and (candidate_object.movable or ObjectSpawner.is_cell_in_movable_area(current_stage, candidate_object.grid_pos))
+			if not can_move:
+				return
+			is_actively_dragging = true
+			dragged_object = candidate_object
 
-	var existing_obj = current_stage.get_object_at(target_cell)
-	if existing_obj == null or existing_obj == dragged_object:
-		if ObjectSpawner.has_movable_areas(current_stage):
-			if ObjectSpawner.is_cell_in_movable_area(current_stage, target_cell):
+	if is_actively_dragging and dragged_object != null and current_stage.is_inside_grid(target_cell) and target_cell != dragged_object.grid_pos:
+		if not ObjectSpawner.has_movable_areas(current_stage) or ObjectSpawner.is_cell_in_movable_area(current_stage, target_cell):
+			var occ = current_stage.get_foreground_object_at(target_cell)
+			if occ == null or occ == dragged_object:
 				dragged_object.grid_pos = target_cell
 				object_dragged.emit(dragged_object)
-		else:
-			dragged_object.grid_pos = target_cell
-			object_dragged.emit(dragged_object)

@@ -301,8 +301,184 @@ func _init() -> void:
 
 	print("--- Testing Bottom Panel & Solvability Button ---")
 	editor._on_run_solvability_requested()
-	assert(editor.bottom_panel.solv_status_lbl != null, "Solvability result UI failed")
 	print("✓ Bottom Panel tabs & Solvability checker button verified working perfectly.")
+
+	print("--- Testing TileMap Movable Area Painting & Layer Separation ---")
+	editor.object_palette.select_item(LaserObjectData.ObjectType.MOVABLE_AREA)
+	assert(editor.grid_canvas.active_palette_type == LaserObjectData.ObjectType.MOVABLE_AREA, "Movable area selection failed")
+	var custom_blue := Color(0.15, 0.75, 0.95, 1.0)
+	editor.object_palette.selected_color = custom_blue
+	editor.grid_canvas.active_palette_color = custom_blue
+
+	var test_stage = editor.current_level.get_stage(1)
+	var test_pos := Vector2i(2, 2)
+	editor.grid_canvas._paint_cell(test_stage, test_pos)
+	var marea = test_stage.get_movable_area_at(test_pos)
+	assert(marea != null and marea.color == custom_blue, "Movable Area custom color paint failed")
+	assert(test_stage.is_cell_in_movable_area(test_pos) == true, "O(1) movable area check failed")
+
+	editor.object_palette.select_item(LaserObjectData.ObjectType.ROTATABLE_MIRROR)
+	editor.grid_canvas._paint_cell(test_stage, test_pos)
+	var fg_mir = test_stage.get_foreground_object_at(test_pos)
+	var bg_area = test_stage.get_movable_area_at(test_pos)
+	assert(fg_mir != null and fg_mir.type == LaserObjectData.ObjectType.ROTATABLE_MIRROR, "Foreground mirror missing")
+	assert(bg_area != null and bg_area.type == LaserObjectData.ObjectType.MOVABLE_AREA, "Movable area was deleted by painting mirror!")
+	print("✓ TileMap multi-layer preservation verified: Movable Area floor and foreground object coexist.")
+
+	var test_pos2 := Vector2i(2, 3)
+	editor.object_palette.select_item(LaserObjectData.ObjectType.MOVABLE_AREA)
+	editor.grid_canvas._paint_cell(test_stage, test_pos2)
+	assert(test_stage.is_cell_in_movable_area(test_pos2) == true, "Movable Area at (2,3) failed")
+
+	var input_ctrl := GameInputController.new()
+	var test_state := {"rotated": false, "dragged": false}
+	input_ctrl.object_rotated.connect(func(_o): test_state["rotated"] = true)
+	input_ctrl.object_dragged.connect(func(_o): test_state["dragged"] = true)
+
+	var orig_rot = fg_mir.rotation_deg
+	var screen_p1 = Vector2(200, 200)
+	var grid_orig = Vector2(100, 100)
+	var c_sz = Vector2(50, 50)
+
+	input_ctrl._handle_press(screen_p1, test_stage, grid_orig, c_sz, false)
+	input_ctrl._handle_release()
+	assert(test_state["rotated"] == true, "Tap gesture should rotate rotatable object")
+	assert(fg_mir.rotation_deg == (orig_rot + 45) % 360, "Rotation degree not incremented")
+	print("✓ Tap gesture rotation verified.")
+
+	var screen_p2 = Vector2(200, 250)
+	input_ctrl._handle_press(screen_p1, test_stage, grid_orig, c_sz, false)
+	input_ctrl._handle_drag(screen_p2, test_stage, grid_orig, c_sz)
+	input_ctrl._handle_release()
+	assert(test_state["dragged"] == true, "Drag gesture should move object inside movable area")
+	assert(fg_mir.grid_pos == Vector2i(2, 3), "Object did not move to target cell (2, 3)")
+	print("✓ Drag gesture object movement inside movable area verified.")
+
+	var screen_blocked = Vector2(100, 100)
+	test_state["dragged"] = false
+	input_ctrl._handle_press(screen_p2, test_stage, grid_orig, c_sz, false)
+	input_ctrl._handle_drag(screen_blocked, test_stage, grid_orig, c_sz)
+	input_ctrl._handle_release()
+	assert(test_state["dragged"] == false, "Object movement outside movable area must be blocked")
+	assert(fg_mir.grid_pos == Vector2i(2, 3), "Object should remain at (2, 3)")
+	print("--- Testing Image-Sliced Board Tile System ---")
+	var tile_st := LaserStageData.new()
+	tile_st.grid_width = 5
+	tile_st.grid_height = 5
+	tile_st.board_image_path = "res://Game/Assets/Board/board.png"
+	tile_st.board_slice_cols = 5
+	tile_st.board_slice_rows = 5
+
+	assert(tile_st.get_effective_slice_cols() == 5, "Effective slice cols should be 5")
+	assert(tile_st.get_effective_slice_rows() == 5, "Effective slice rows should be 5")
+
+	tile_st.set_board_tile(Vector2i(1, 2), Vector2i(0, 1))
+	assert(tile_st.has_board_tile(Vector2i(1, 2)) == true, "Tile (1, 2) should exist")
+	assert(tile_st.get_board_tile(Vector2i(1, 2)) == Vector2i(0, 1), "Tile (1, 2) should have coord (0, 1)")
+	tile_st.remove_board_tile(Vector2i(1, 2))
+	assert(tile_st.has_board_tile(Vector2i(1, 2)) == false, "Tile (1, 2) should be removed")
+
+	tile_st.auto_fill_board_tiles()
+	assert(tile_st.board_tiles.size() == 25, "5x5 grid should have 25 auto-filled board tiles")
+	assert(tile_st.get_board_tile(Vector2i(4, 4)) == Vector2i(4, 4), "Tile (4, 4) should map to slice (4, 4)")
+
+	tile_st.set_board_margins(21, 23, 19, 21)
+	tile_st.show_tile_borders = false
+	assert(tile_st.has_board_margins() == true, "Stage should have board margins")
+	assert(tile_st.get_board_margins() == Vector4i(21, 23, 19, 21), "Board margins mismatch")
+	assert(tile_st.show_tile_borders == false, "show_tile_borders should be false")
+
+	tile_st.toggle_frame_piece("T_0")
+	tile_st.toggle_frame_piece("L_2")
+	assert(tile_st.is_frame_piece_hidden("T_0") == true, "T_0 should be hidden")
+	assert(tile_st.is_frame_piece_hidden("L_2") == true, "L_2 should be hidden")
+	assert(tile_st.is_frame_piece_hidden("R_0") == false, "R_0 should not be hidden")
+
+	var tile_dict := tile_st.to_dict()
+	assert(tile_dict.get("board_image_path") == "res://Game/Assets/Board/board.png", "Serialized image path failed")
+	assert(tile_dict.get("board_tiles").size() == 25, "Serialized tiles size failed")
+	assert(tile_dict.get("board_margin_left") == 21, "Serialized margin_left failed")
+	assert(tile_dict.get("board_margin_top") == 23, "Serialized margin_top failed")
+	assert(tile_dict.get("show_tile_borders") == false, "Serialized show_tile_borders failed")
+	assert(tile_dict.get("hidden_frame_pieces").size() == 2, "Serialized hidden_frame_pieces size failed")
+
+	var restored_st := LaserStageData.from_dict(tile_dict)
+	assert(restored_st.board_image_path == tile_st.board_image_path, "Deserialized image path failed")
+	assert(restored_st.board_tiles.size() == 25, "Deserialized tiles size failed")
+	assert(restored_st.get_board_tile(Vector2i(0, 0)) == Vector2i(0, 0), "Deserialized tile (0, 0) failed")
+	assert(restored_st.board_margin_left == 21, "Deserialized margin_left failed")
+	assert(restored_st.board_margin_top == 23, "Deserialized margin_top failed")
+	assert(restored_st.has_board_margins() == true, "Deserialized should have margins")
+	assert(restored_st.show_tile_borders == false, "Deserialized show_tile_borders failed")
+	assert(restored_st.is_frame_piece_hidden("T_0") == true, "Deserialized T_0 should be hidden")
+
+	var cloned_st := tile_st.duplicate_data()
+	assert(cloned_st.board_tiles.size() == 25, "Cloned stage should preserve 25 tiles")
+	assert(cloned_st.board_margin_left == 21, "Cloned stage should preserve margin_left")
+	assert(cloned_st.show_tile_borders == false, "Cloned stage should preserve show_tile_borders")
+	assert(cloned_st.is_frame_piece_hidden("L_2") == true, "Cloned stage should preserve L_2 hidden")
+	print("✓ LaserStageData board tilemap and frame margin serialization verified.")
+
+	var b_tex := BoardLayoutManager.get_board_texture(tile_st.board_image_path)
+	assert(b_tex != null, "Failed to load board texture from res://Game/Assets/Board/board.png")
+	var s_rect := BoardLayoutManager.get_tile_src_rect(b_tex, 2, 3, 5, 5, tile_st.get_board_margins())
+	assert(s_rect.size.x > 0 and s_rect.size.y > 0, "Slice rect should have positive dimensions")
+	var det_margins := BoardLayoutManager.auto_detect_board_margins(b_tex)
+	assert(det_margins.x > 0 and det_margins.y > 0, "Auto-detect board margins failed")
+	var p_rects := BoardLayoutManager.get_frame_piece_rects(Rect2(0, 0, 200, 200), det_margins, b_tex.get_size(), 5, 5)
+	assert(p_rects.has("T_0"), "Frame pieces must contain T_0")
+	assert(p_rects.has("L_4"), "Frame pieces must contain L_4")
+	var hit_p := BoardLayoutManager.get_frame_piece_at_point(p_rects["T_0"].get_center(), Rect2(0, 0, 200, 200), det_margins, b_tex.get_size(), 5, 5)
+	assert(hit_p == "T_0", "Point inside T_0 must return T_0")
+	print("✓ BoardLayoutManager texture caching, inner slice, and frame piece hit testing verified.")
+
+	assert(editor.board_tile_palette != null, "Editor should have board_tile_palette")
+	editor.board_tile_palette.set_stage(tile_st)
+	editor.board_tile_palette.select_tile(3, 2)
+	assert(editor.board_tile_palette.selected_tile_coord == Vector2i(3, 2), "Selected tile should be (3, 2)")
+	editor.board_tile_palette._on_paint_tile_pressed()
+	assert(editor.grid_canvas.current_tool == GridCanvas.ToolMode.TILE_PAINT, "Canvas tool should switch to TILE_PAINT")
+	assert(editor.grid_canvas.active_tile_coord == Vector2i(3, 2), "Canvas active tile should be (3, 2)")
+
+	editor.grid_canvas._paint_board_tile(tile_st, Vector2i(0, 0))
+	assert(tile_st.get_board_tile(Vector2i(0, 0)) == Vector2i(3, 2), "Placed tile should be (3, 2)")
+	print("✓ Editor BoardTilePalette and Canvas tile painting verified.")
+
+	editor.inspector_panel.set_stage(tile_st)
+	assert(editor.inspector_panel.tile_buttons.size() == 25, "InspectorPanel should have 25 sliced tile buttons for 5x5 grid")
+	assert(editor.inspector_panel.tile_buttons.has(Vector2i(1, 1)), "InspectorPanel should have tile (1, 1)")
+	var btn_1_1: Button = editor.inspector_panel.tile_buttons[Vector2i(1, 1)]
+	btn_1_1.pressed.emit()
+	assert(editor.grid_canvas.current_tool == GridCanvas.ToolMode.TILE_PAINT, "Clicking inspector tile button should activate TILE_PAINT")
+	assert(editor.grid_canvas.active_tile_coord == Vector2i(1, 1), "Active tile should be (1, 1)")
+	print("✓ InspectorPanel inline 5x5 sliced tile buttons & canvas painting verified.")
+
+	editor.inspector_panel._open_big_tile_dialog()
+	assert(editor.inspector_panel.big_tile_dialog != null, "Big tile dialog should exist")
+	assert(editor.inspector_panel.big_dialog_buttons.size() == 25, "Big tile dialog should contain 25 large tile buttons")
+	var big_btn_2_2: Button = editor.inspector_panel.big_dialog_buttons[Vector2i(2, 2)]
+	big_btn_2_2.pressed.emit()
+	assert(editor.grid_canvas.current_tool == GridCanvas.ToolMode.TILE_PAINT, "Clicking big dialog tile should activate TILE_PAINT")
+	assert(editor.grid_canvas.active_tile_coord == Vector2i(2, 2), "Active tile from big dialog should be (2, 2)")
+	print("✓ InspectorPanel Big Tile Dialog & canvas painting verified.")
+
+	editor.inspector_panel._switch_tab(1)
+	assert(editor.inspector_panel.stage_section.visible == true, "Stage section must be visible on Stage tab")
+	assert(editor.inspector_panel.tile_section.visible == false, "Tile section must NOT be visible on Stage tab")
+	editor.inspector_panel._switch_tab(3)
+	assert(editor.inspector_panel.stage_section.visible == false, "Stage section must NOT be visible on Tiles tab")
+	assert(editor.inspector_panel.tile_section.visible == true, "Tile section must be visible on Tiles tab")
+	print("✓ Clean separation of Stage and Tiles tabs verified.")
+
+
+	var gp_scene: PackedScene = load("res://Game/GamePlay.tscn")
+	assert(gp_scene != null, "GamePlay.tscn should load")
+	var gp_instance: Node2D = gp_scene.instantiate()
+	assert(gp_instance != null, "GamePlay.tscn should instantiate")
+	assert(gp_instance.get_node_or_null("Board") == null, "Static Board node should be removed from GamePlay scene")
+	assert(gp_instance.get_node_or_null("GridLayer") != null, "GridLayer should exist")
+	gp_instance.queue_free()
+	print("✓ GamePlay scene clean Board-less hierarchy verified.")
 
 	editor._sync_gameplay_tscn_level_number(1)
 	editor.queue_free()

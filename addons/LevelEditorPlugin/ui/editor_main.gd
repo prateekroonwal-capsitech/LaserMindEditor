@@ -10,6 +10,7 @@ var top_bar: PanelContainer
 var stage_tabs: StageTabs
 var grid_canvas: GridCanvas
 var object_palette: ObjectPalette
+var board_tile_palette: BoardTilePalette
 var inspector_panel: InspectorPanel
 var bottom_panel: BottomPanel
 var level_browser: LevelBrowser
@@ -197,6 +198,19 @@ func _setup_ui() -> void:
 	object_palette.custom_element_selected.connect(_on_custom_element_selected)
 	left_tabs.add_child(object_palette)
 
+	board_tile_palette = BoardTilePalette.new()
+	board_tile_palette.name = "Board Tiles"
+	board_tile_palette.tile_selected.connect(_on_board_tile_selected)
+	board_tile_palette.tool_mode_requested.connect(_on_board_tile_tool_mode_requested)
+	board_tile_palette.board_settings_changed.connect(_on_stage_content_changed)
+	board_tile_palette.request_redraw.connect(func():
+		if grid_canvas != null:
+			grid_canvas.queue_redraw()
+		if inspector_panel != null and current_level != null:
+			inspector_panel.set_stage(current_level.get_stage(current_stage_idx))
+	)
+	left_tabs.add_child(board_tile_palette)
+
 	level_browser = LevelBrowser.new()
 	level_browser.name = "Browser"
 	level_browser.level_opened.connect(_on_level_opened)
@@ -244,6 +258,8 @@ func _setup_ui() -> void:
 	inspector_panel.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	inspector_panel.object_changed.connect(_on_inspector_object_changed)
 	inspector_panel.stage_settings_changed.connect(_on_stage_settings_changed)
+	inspector_panel.tile_paint_selected.connect(_on_board_tile_selected)
+	inspector_panel.tile_tool_mode_requested.connect(_on_board_tile_tool_mode_requested)
 	inspector_panel.level_settings_changed.connect(_on_level_settings_changed)
 	inspector_panel.request_delete_selected.connect(_delete_selected_objects)
 	inspector_panel.request_duplicate_selected.connect(_duplicate_selected_objects)
@@ -377,6 +393,8 @@ func _activate_stage(stage_idx: int, refit_view: bool = true) -> void:
 				grid_canvas.zoom_to_fit()
 	if inspector_panel != null:
 		inspector_panel.set_stage(st)
+	if board_tile_palette != null:
+		board_tile_palette.set_stage(st)
 	_run_analysis_and_validation()
 
 func _on_canvas_stage_activated(idx: int) -> void:
@@ -386,8 +404,12 @@ func _on_canvas_stage_activated(idx: int) -> void:
 	if stage_tabs != null:
 		stage_tabs.active_stage_idx = idx
 		stage_tabs._update_tabs()
-	if inspector_panel != null and current_level != null:
-		inspector_panel.set_stage(current_level.get_stage(idx))
+	if current_level != null:
+		var st = current_level.get_stage(idx)
+		if inspector_panel != null:
+			inspector_panel.set_stage(st)
+		if board_tile_palette != null:
+			board_tile_palette.set_stage(st)
 	_run_analysis_and_validation()
 
 func _update_title() -> void:
@@ -490,7 +512,20 @@ func _on_stage_settings_changed(st: LaserStageData) -> void:
 	grid_canvas.queue_redraw()
 	if stage_tabs != null:
 		stage_tabs._update_flow_text()
+	if board_tile_palette != null:
+		board_tile_palette.set_stage(st)
 	_on_stage_content_changed()
+
+func _on_board_tile_selected(tile_coord: Vector2i) -> void:
+	if grid_canvas != null:
+		grid_canvas.active_tile_coord = tile_coord
+		grid_canvas.current_tool = GridCanvas.ToolMode.TILE_PAINT
+		grid_canvas.queue_redraw()
+
+func _on_board_tile_tool_mode_requested(mode: int) -> void:
+	if grid_canvas != null:
+		grid_canvas.current_tool = mode as GridCanvas.ToolMode
+		grid_canvas.queue_redraw()
 
 func _on_level_settings_changed(lvl: LaserLevelData) -> void:
 	_on_stage_content_changed()

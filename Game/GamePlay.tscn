@@ -16,7 +16,6 @@
 [ext_resource type="PackedScene" path="res://Game/Objects/Scenes/GateWithSwitch.tscn" id="15_gwitch"]
 [ext_resource type="PackedScene" path="res://Game/Objects/Scenes/MovableArea.tscn" id="16_marea"]
 [ext_resource type="Texture2D" uid="uid://dcghic8hgfto6" path="res://Game/Assets/Board/background.png" id="17_bg"]
-[ext_resource type="Texture2D" uid="uid://bv8gm8m0um1d" path="res://Game/Assets/Board/board.png" id="18_board"]
 [ext_resource type="Script" uid="uid://bayop8fv0a0ix" path="res://Game/Scripts/grid_renderer.gd" id="19_grid"]
 [ext_resource type="Script" uid="uid://bwymsxudjkjjv" path="res://Game/Scripts/beam_renderer.gd" id="20_beam"]
 
@@ -42,13 +41,6 @@ gate_switch_scene = ExtResource("15_gwitch")
 scale = Vector2(1.0117396, 1)
 texture = ExtResource("17_bg")
 centered = false
-
-[node name="Board" type="NinePatchRect" parent="." unique_id=55142877]
-texture = ExtResource("18_board")
-patch_margin_left = 32
-patch_margin_top = 44
-patch_margin_right = 32
-patch_margin_bottom = 38
 
 [node name="GridLayer" type="Node2D" parent="." unique_id=1978019652]
 level_number = 1

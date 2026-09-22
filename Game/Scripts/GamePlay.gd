@@ -38,7 +38,7 @@ const ProceduralLaserObject = preload("res://Game/Scripts/procedural_object.gd")
 @export var use_editor_visuals_in_playtest: bool = true
 
 @onready var background: Sprite2D = $Background
-@onready var board: NinePatchRect = $Board
+@onready var board = get_node_or_null("Board")
 @onready var grid_renderer: GridRenderer = $GridLayer
 @onready var beam_renderer: BeamRenderer = $BeamLayer
 @onready var objects_container: Node2D = $LevelObjects
@@ -184,15 +184,15 @@ func load_stage(stage_num: int) -> void:
 		level_data.level_id, current_stage_idx, current_stage.grid_width, current_stage.grid_height
 	])
 
-	# Spawn MovableArea nodes on background layer (z = -1)
+	# Spawn MovableArea nodes on floor layer (z = 0)
 	for obj in current_stage.objects:
 		if obj != null and obj.enabled and obj.type == LaserObjectData.ObjectType.MOVABLE_AREA:
-			_spawn_and_register(obj, -1)
+			_spawn_and_register(obj, 0)
 
-	# Spawn active objects on main layer (z = 0)
+	# Spawn active objects on foreground layer (z = 1)
 	for obj in current_stage.objects:
 		if obj != null and obj.enabled and obj.type != LaserObjectData.ObjectType.MOVABLE_AREA:
-			_spawn_and_register(obj, 0)
+			_spawn_and_register(obj, 1)
 
 	recalculate_simulation(true)
 	_redraw_grid()
