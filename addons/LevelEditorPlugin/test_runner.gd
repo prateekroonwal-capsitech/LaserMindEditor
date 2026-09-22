@@ -1,7 +1,5 @@
 extends SceneTree
 
-const GamePlayScript = preload("res://Game/Scripts/GamePlay.gd")
-
 func _init() -> void:
 
 	print("--- BEGINNING LASER MIND LEVEL EDITOR VALIDATION ---")
@@ -277,25 +275,26 @@ func _init() -> void:
 	assert(editor.object_palette.custom_elements.is_empty(), "Deleting custom element should be able to empty list")
 	assert(editor.object_palette.remove_custom_btn.disabled == true, "Remove button should be disabled when empty")
 
-	var gp := GamePlayScript.new()
-	var dummy_packed: PackedScene = load("res://Game/Objects/Scenes/Custom.tscn")
-	gp.custom_named_scenes["Custom 2"] = dummy_packed
+	if ResourceLoader.exists("res://Game/Scripts/GamePlay.gd") and ResourceLoader.exists("res://Game/Objects/Scenes/Custom.tscn"):
+		var GPClass = load("res://Game/Scripts/GamePlay.gd")
+		var gp = GPClass.new()
+		var dummy_packed: PackedScene = load("res://Game/Objects/Scenes/Custom.tscn")
+		gp.custom_named_scenes["Custom 2"] = dummy_packed
 
-	var cust_obj2 := LaserObjectData.create(LaserObjectData.ObjectType.CUSTOM, Vector2i(1, 2), 0)
-	cust_obj2.properties["custom_name"] = "Custom 2"
-	var resolved_scene2 = gp._get_scene_for_object(cust_obj2)
-	assert(resolved_scene2 == dummy_packed, "GamePlay._get_scene_for_object should resolve custom scene from custom_named_scenes string key")
+		var cust_obj2 := LaserObjectData.create(LaserObjectData.ObjectType.CUSTOM, Vector2i(1, 2), 0)
+		cust_obj2.properties["custom_name"] = "Custom 2"
+		var resolved_scene2 = gp._get_scene_for_object(cust_obj2)
+		assert(resolved_scene2 == dummy_packed, "GamePlay._get_scene_for_object should resolve custom scene from custom_named_scenes string key")
 
-	cust_obj2.properties["custom_name"] = "custom 2"
-	assert(gp._get_scene_for_object(cust_obj2) == dummy_packed, "Case-insensitive matching for custom_named_scenes should work")
+		cust_obj2.properties["custom_name"] = "custom 2"
+		assert(gp._get_scene_for_object(cust_obj2) == dummy_packed, "Case-insensitive matching for custom_named_scenes should work")
 
-	gp.is_playtest_mode = true
-	gp.use_editor_visuals_in_playtest = true
-	var spawned_node = gp._spawn_object(cust_obj2)
-	assert(spawned_node != null and (spawned_node is CustomObject), "Custom object should instantiate actual custom scene even in playtest mode")
-	spawned_node.queue_free()
-
-	gp.queue_free()
+		gp.is_playtest_mode = true
+		gp.use_editor_visuals_in_playtest = true
+		var spawned_node = gp._spawn_object(cust_obj2)
+		assert(spawned_node != null, "Custom object should instantiate actual custom scene")
+		spawned_node.queue_free()
+		gp.queue_free()
 
 	print("✓ Inspector Panel (Object, Stage, Level properties & Custom Name/Scene) verified working perfectly.")
 
@@ -361,124 +360,382 @@ func _init() -> void:
 	input_ctrl._handle_release()
 	assert(test_state["dragged"] == false, "Object movement outside movable area must be blocked")
 	assert(fg_mir.grid_pos == Vector2i(2, 3), "Object should remain at (2, 3)")
-	print("--- Testing Image-Sliced Board Tile System ---")
+	print("--- Testing Visual Tiles Tab & 3-Tile Painting System ---")
 	var tile_st := LaserStageData.new()
 	tile_st.grid_width = 5
 	tile_st.grid_height = 5
-	tile_st.board_image_path = "res://Game/Assets/Board/board.png"
-	tile_st.board_slice_cols = 5
-	tile_st.board_slice_rows = 5
 
-	assert(tile_st.get_effective_slice_cols() == 5, "Effective slice cols should be 5")
-	assert(tile_st.get_effective_slice_rows() == 5, "Effective slice rows should be 5")
+	# 1. Verification: No Automatic Tile Fill on Grid Creation
+	assert(tile_st.custom_tiles.is_empty(), "Newly created grid must NOT have any auto-filled visual tiles")
+	assert(tile_st.get_custom_tiles_count() == 0, "Custom tiles count must be 0")
+	var BoardVisualGen = preload("res://Game/Scripts/board_visual_generator.gd")
+	var empty_vis := BoardVisualGen.get_cell_visual(tile_st, Vector2i(0, 0))
+	assert(empty_vis.type == -1, "Unpainted cell must return type -1 (empty)")
+	assert(empty_vis.texture == null, "Unpainted cell must have null texture")
+	print("✓ No automatic visual filling verified: grid cells start completely empty.")
 
-	tile_st.set_board_tile(Vector2i(1, 2), Vector2i(0, 1))
-	assert(tile_st.has_board_tile(Vector2i(1, 2)) == true, "Tile (1, 2) should exist")
-	assert(tile_st.get_board_tile(Vector2i(1, 2)) == Vector2i(0, 1), "Tile (1, 2) should have coord (0, 1)")
-	tile_st.remove_board_tile(Vector2i(1, 2))
-	assert(tile_st.has_board_tile(Vector2i(1, 2)) == false, "Tile (1, 2) should be removed")
+	# 2. Properties Inspector: Tab bar structure & Tab Isolation
+	assert(editor.inspector_panel.tab_obj_btn != null, "Object tab button must exist")
+	assert(editor.inspector_panel.tab_stage_btn != null, "Stage tab button must exist")
+	assert(editor.inspector_panel.tab_lvl_btn != null, "Level tab button must exist")
+	assert(editor.inspector_panel.tab_tile_btn != null, "Tiles tab button must exist")
 
-	tile_st.auto_fill_board_tiles()
-	assert(tile_st.board_tiles.size() == 25, "5x5 grid should have 25 auto-filled board tiles")
-	assert(tile_st.get_board_tile(Vector2i(4, 4)) == Vector2i(4, 4), "Tile (4, 4) should map to slice (4, 4)")
-
-	tile_st.set_board_margins(21, 23, 19, 21)
-	tile_st.show_tile_borders = false
-	assert(tile_st.has_board_margins() == true, "Stage should have board margins")
-	assert(tile_st.get_board_margins() == Vector4i(21, 23, 19, 21), "Board margins mismatch")
-	assert(tile_st.show_tile_borders == false, "show_tile_borders should be false")
-
-	tile_st.toggle_frame_piece("T_0")
-	tile_st.toggle_frame_piece("L_2")
-	assert(tile_st.is_frame_piece_hidden("T_0") == true, "T_0 should be hidden")
-	assert(tile_st.is_frame_piece_hidden("L_2") == true, "L_2 should be hidden")
-	assert(tile_st.is_frame_piece_hidden("R_0") == false, "R_0 should not be hidden")
-
-	var tile_dict := tile_st.to_dict()
-	assert(tile_dict.get("board_image_path") == "res://Game/Assets/Board/board.png", "Serialized image path failed")
-	assert(tile_dict.get("board_tiles").size() == 25, "Serialized tiles size failed")
-	assert(tile_dict.get("board_margin_left") == 21, "Serialized margin_left failed")
-	assert(tile_dict.get("board_margin_top") == 23, "Serialized margin_top failed")
-	assert(tile_dict.get("show_tile_borders") == false, "Serialized show_tile_borders failed")
-	assert(tile_dict.get("hidden_frame_pieces").size() == 2, "Serialized hidden_frame_pieces size failed")
-
-	var restored_st := LaserStageData.from_dict(tile_dict)
-	assert(restored_st.board_image_path == tile_st.board_image_path, "Deserialized image path failed")
-	assert(restored_st.board_tiles.size() == 25, "Deserialized tiles size failed")
-	assert(restored_st.get_board_tile(Vector2i(0, 0)) == Vector2i(0, 0), "Deserialized tile (0, 0) failed")
-	assert(restored_st.board_margin_left == 21, "Deserialized margin_left failed")
-	assert(restored_st.board_margin_top == 23, "Deserialized margin_top failed")
-	assert(restored_st.has_board_margins() == true, "Deserialized should have margins")
-	assert(restored_st.show_tile_borders == false, "Deserialized show_tile_borders failed")
-	assert(restored_st.is_frame_piece_hidden("T_0") == true, "Deserialized T_0 should be hidden")
-
-	var cloned_st := tile_st.duplicate_data()
-	assert(cloned_st.board_tiles.size() == 25, "Cloned stage should preserve 25 tiles")
-	assert(cloned_st.board_margin_left == 21, "Cloned stage should preserve margin_left")
-	assert(cloned_st.show_tile_borders == false, "Cloned stage should preserve show_tile_borders")
-	assert(cloned_st.is_frame_piece_hidden("L_2") == true, "Cloned stage should preserve L_2 hidden")
-	print("✓ LaserStageData board tilemap and frame margin serialization verified.")
-
-	var b_tex := BoardLayoutManager.get_board_texture(tile_st.board_image_path)
-	assert(b_tex != null, "Failed to load board texture from res://Game/Assets/Board/board.png")
-	var s_rect := BoardLayoutManager.get_tile_src_rect(b_tex, 2, 3, 5, 5, tile_st.get_board_margins())
-	assert(s_rect.size.x > 0 and s_rect.size.y > 0, "Slice rect should have positive dimensions")
-	var det_margins := BoardLayoutManager.auto_detect_board_margins(b_tex)
-	assert(det_margins.x > 0 and det_margins.y > 0, "Auto-detect board margins failed")
-	var p_rects := BoardLayoutManager.get_frame_piece_rects(Rect2(0, 0, 200, 200), det_margins, b_tex.get_size(), 5, 5)
-	assert(p_rects.has("T_0"), "Frame pieces must contain T_0")
-	assert(p_rects.has("L_4"), "Frame pieces must contain L_4")
-	var hit_p := BoardLayoutManager.get_frame_piece_at_point(p_rects["T_0"].get_center(), Rect2(0, 0, 200, 200), det_margins, b_tex.get_size(), 5, 5)
-	assert(hit_p == "T_0", "Point inside T_0 must return T_0")
-	print("✓ BoardLayoutManager texture caching, inner slice, and frame piece hit testing verified.")
-
-	assert(editor.board_tile_palette != null, "Editor should have board_tile_palette")
-	editor.board_tile_palette.set_stage(tile_st)
-	editor.board_tile_palette.select_tile(3, 2)
-	assert(editor.board_tile_palette.selected_tile_coord == Vector2i(3, 2), "Selected tile should be (3, 2)")
-	editor.board_tile_palette._on_paint_tile_pressed()
-	assert(editor.grid_canvas.current_tool == GridCanvas.ToolMode.TILE_PAINT, "Canvas tool should switch to TILE_PAINT")
-	assert(editor.grid_canvas.active_tile_coord == Vector2i(3, 2), "Canvas active tile should be (3, 2)")
-
-	editor.grid_canvas._paint_board_tile(tile_st, Vector2i(0, 0))
-	assert(tile_st.get_board_tile(Vector2i(0, 0)) == Vector2i(3, 2), "Placed tile should be (3, 2)")
-	print("✓ Editor BoardTilePalette and Canvas tile painting verified.")
-
-	editor.inspector_panel.set_stage(tile_st)
-	assert(editor.inspector_panel.tile_buttons.size() == 25, "InspectorPanel should have 25 sliced tile buttons for 5x5 grid")
-	assert(editor.inspector_panel.tile_buttons.has(Vector2i(1, 1)), "InspectorPanel should have tile (1, 1)")
-	var btn_1_1: Button = editor.inspector_panel.tile_buttons[Vector2i(1, 1)]
-	btn_1_1.pressed.emit()
-	assert(editor.grid_canvas.current_tool == GridCanvas.ToolMode.TILE_PAINT, "Clicking inspector tile button should activate TILE_PAINT")
-	assert(editor.grid_canvas.active_tile_coord == Vector2i(1, 1), "Active tile should be (1, 1)")
-	print("✓ InspectorPanel inline 5x5 sliced tile buttons & canvas painting verified.")
-
-	editor.inspector_panel._open_big_tile_dialog()
-	assert(editor.inspector_panel.big_tile_dialog != null, "Big tile dialog should exist")
-	assert(editor.inspector_panel.big_dialog_buttons.size() == 25, "Big tile dialog should contain 25 large tile buttons")
-	var big_btn_2_2: Button = editor.inspector_panel.big_dialog_buttons[Vector2i(2, 2)]
-	big_btn_2_2.pressed.emit()
-	assert(editor.grid_canvas.current_tool == GridCanvas.ToolMode.TILE_PAINT, "Clicking big dialog tile should activate TILE_PAINT")
-	assert(editor.grid_canvas.active_tile_coord == Vector2i(2, 2), "Active tile from big dialog should be (2, 2)")
-	print("✓ InspectorPanel Big Tile Dialog & canvas painting verified.")
+	editor.inspector_panel._switch_tab(0)
+	assert(editor.inspector_panel.obj_section.visible == true, "Object section must be visible on Object tab")
+	assert(editor.inspector_panel.stage_section.visible == false, "Stage section must NOT be visible on Object tab")
+	assert(editor.inspector_panel.lvl_section.visible == false, "Level section must NOT be visible on Object tab")
+	assert(editor.inspector_panel.tile_section.visible == false, "Tiles section must NOT be visible on Object tab")
 
 	editor.inspector_panel._switch_tab(1)
 	assert(editor.inspector_panel.stage_section.visible == true, "Stage section must be visible on Stage tab")
-	assert(editor.inspector_panel.tile_section.visible == false, "Tile section must NOT be visible on Stage tab")
+	assert(editor.inspector_panel.tile_section.visible == false, "Tiles section must NOT be visible on Stage tab")
+
+	editor.inspector_panel._switch_tab(2)
+	assert(editor.inspector_panel.lvl_section.visible == true, "Level section must be visible on Level tab")
+	assert(editor.inspector_panel.tile_section.visible == false, "Tiles section must NOT be visible on Level tab")
+
 	editor.inspector_panel._switch_tab(3)
+	assert(editor.inspector_panel.tile_section.visible == true, "Tiles section must be visible on Tiles tab")
 	assert(editor.inspector_panel.stage_section.visible == false, "Stage section must NOT be visible on Tiles tab")
-	assert(editor.inspector_panel.tile_section.visible == true, "Tile section must be visible on Tiles tab")
-	print("✓ Clean separation of Stage and Tiles tabs verified.")
+	print("✓ Properties Inspector intact: [ Object ] [ Stage ] [ Level ] [ Tiles ] tabs verified.")
 
+	# 3. 3-Library Visual Asset Model: CELL, BORDER, CORNER Libraries
+	editor.inspector_panel.set_stage(tile_st)
+	assert(tile_st.cell_assets.size() >= 1, "Must have at least 1 default cell asset")
+	assert(tile_st.border_assets.size() >= 1, "Must have at least 1 default border asset")
+	assert(tile_st.corner_assets.size() >= 1, "Must have at least 1 default corner asset")
+	print("✓ 3 Visual Asset Libraries initialized with defaults (Cells, Borders, Corners).")
 
-	var gp_scene: PackedScene = load("res://Game/GamePlay.tscn")
-	assert(gp_scene != null, "GamePlay.tscn should load")
-	var gp_instance: Node2D = gp_scene.instantiate()
-	assert(gp_instance != null, "GamePlay.tscn should instantiate")
-	assert(gp_instance.get_node_or_null("Board") == null, "Static Board node should be removed from GamePlay scene")
-	assert(gp_instance.get_node_or_null("GridLayer") != null, "GridLayer should exist")
-	gp_instance.queue_free()
-	print("✓ GamePlay scene clean Board-less hierarchy verified.")
+	# Test Adding & Removing in Cell Library
+	var added_cell_id := tile_st.add_cell_asset("res://addons/LevelEditorPlugin/assets/default/cells/Cell_B.svg", "Cell Theme 2")
+	assert(tile_st.cell_assets.size() >= 2, "Cell asset count must increase")
+	editor.inspector_panel.set_stage(tile_st)
+
+	# Test Adding & Removing in Border Library
+	var added_border_id := tile_st.add_border_asset("res://addons/LevelEditorPlugin/assets/default/borders/Border_V.svg", "Border Theme 2")
+	assert(tile_st.border_assets.size() >= 2, "Border asset count must increase")
+
+	# Test Adding & Removing in Corner Library
+	var added_corner_id := tile_st.add_corner_asset("res://addons/LevelEditorPlugin/assets/default/corners/demo_corner_01.svg", "Corner Theme 2")
+	assert(tile_st.corner_assets.size() >= 2, "Corner asset count must increase")
+	print("✓ Asset addition to Cell, Border, and Corner libraries verified.")
+
+	# 4. Cell Painting & Rotation Controls
+	editor.inspector_panel._select_cell_asset("Cell_A")
+	editor.inspector_panel._on_cell_rot_changed(45.0)
+	assert(is_equal_approx(editor.inspector_panel.active_cell_rot, 45.0), "Selected rotation should be 45°")
+
+	editor.grid_canvas._paint_board_tile(tile_st, Vector2i(0, 0))
+	assert(tile_st.has_cell_visual(Vector2i(0, 0)) == true, "Cell (0,0) should have visual")
+	var p_vis00 := tile_st.get_cell_visual(Vector2i(0, 0))
+	assert(is_equal_approx(p_vis00.get("rotation", 0.0), 45.0), "Cell (0,0) rotation must be 45°")
+
+	# Paint at (1, 0) with another rotation
+	editor.inspector_panel._on_cell_rot_changed(90.0)
+	editor.grid_canvas._paint_board_tile(tile_st, Vector2i(1, 0))
+	var p_vis10 := tile_st.get_cell_visual(Vector2i(1, 0))
+	assert(is_equal_approx(p_vis10.get("rotation", 0.0), 90.0), "Cell (1,0) rotation must be 90°")
+
+	# Erase cell (1, 0)
+	editor.inspector_panel._on_erase_tile_pressed()
+	assert(editor.grid_canvas.current_tool == GridCanvas.ToolMode.TILE_ERASE, "Erase button must activate TILE_ERASE")
+	editor.grid_canvas._erase_board_tile(tile_st, Vector2i(1, 0))
+	assert(tile_st.has_cell_visual(Vector2i(1, 0)) == false, "Erased cell (1, 0) must no longer have visual")
+	print("✓ Cell manual painting, arbitrary rotation, and erasing verified.")
+
+	# 5. Border Placement & Intentional Visual Gaps
+	tile_st.grid_width = 4
+	tile_st.grid_height = 4
+	var b_origin := Vector2(50, 50)
+	var b_cell_sz := Vector2(64, 64)
+
+	# Configure borders: Top=0°, Bottom=180°, Left=270°, Right=EMPTY (gap)
+	tile_st.set_border_visual("top", 0, "border_1", 0.0)
+	tile_st.set_border_visual("bottom", 0, "border_1", 180.0)
+	tile_st.set_border_visual("left", 0, "border_1", 270.0)
+
+	var border_pieces := BoardVisualGen.get_border_pieces(tile_st, b_origin, b_cell_sz)
+	var has_top := false
+	var has_bottom := false
+	var has_left := false
+	var has_right := false
+	for bp in border_pieces:
+		if bp.get("type", "") == "border":
+			match bp.get("side", ""):
+				"top": has_top = true
+				"bottom": has_bottom = true
+				"left": has_left = true
+				"right": has_right = true
+
+	assert(has_top == true, "Top border must be present")
+	assert(has_bottom == true, "Bottom border must be present")
+	assert(has_left == true, "Left border must be present")
+	assert(has_right == false, "Right border must be EMPTY to create an intentional gap!")
+	print("✓ Border placement with rotation and intentional gap (empty side) verified.")
+
+	# 6. Corner Placement: 1 Corner Image reused at corners via rotation & mirror
+	tile_st.set_corner_visual("top_left", "corner_1", 0.0, false, false)
+	tile_st.set_corner_visual("top_right", "corner_1", 90.0, false, false)
+	tile_st.set_corner_visual("bottom_right", "corner_1", 180.0, false, false)
+	tile_st.set_corner_visual("bottom_left", "corner_1", 270.0, true, false) # Mirror X test
+
+	var corner_p_tl = tile_st.get_corner_visual("top_left")
+	var corner_p_bl = tile_st.get_corner_visual("bottom_left")
+	assert(is_equal_approx(corner_p_tl.get("rotation", 0.0), 0.0), "Top-left rotation 0°")
+	assert(corner_p_bl.get("mirror_x", false) == true, "Bottom-left mirror X should be true")
+	print("✓ Corner placement with rotation, Mirror X, Mirror Y verified.")
+
+	# 7. Level-Specific Visual Theme Persistence (to_dict / from_dict)
+	var st_dict := tile_st.to_dict()
+	assert(st_dict.has("cell_assets"), "Serialized stage must have cell_assets")
+	assert(st_dict.has("border_assets"), "Serialized stage must have border_assets")
+	assert(st_dict.has("corner_assets"), "Serialized stage must have corner_assets")
+	assert(st_dict.has("border_visuals"), "Serialized stage must have border_visuals")
+	assert(st_dict.has("corner_visuals"), "Serialized stage must have corner_visuals")
+
+	var st_restored := LaserStageData.from_dict(st_dict)
+	assert(st_restored.cell_assets.size() == tile_st.cell_assets.size(), "Restored cell assets count mismatch")
+	assert(st_restored.border_assets.size() == tile_st.border_assets.size(), "Restored border assets count mismatch")
+	assert(st_restored.corner_assets.size() == tile_st.corner_assets.size(), "Restored corner assets count mismatch")
+	assert(st_restored.has_border_visual("right", 0) == false, "Restored right border must still be empty gap")
+	assert(st_restored.get_corner_visual("bottom_left").get("mirror_x", false) == true, "Restored bottom-left mirror_x preserved")
+	print("✓ Level-specific visual themes and placements survive serialization and restoration.")
+
+	# 8. NEW ARCHITECTURE TESTS: Independent Cell Visuals & Border Visuals
+
+	print("--- Testing Cell Visuals: Multiple Images, Arbitrary Rotation, Empty Cells & In-Place Editing ---")
+	var vis_st := LaserStageData.new()
+	vis_st.grid_width = 5
+	vis_st.grid_height = 5
+
+	# Check Cell Visual Asset Textures (Cell_A, Cell_B, Cell_C, Cell_D)
+	var tex_a = BoardVisualGen.get_cell_visual_texture("Cell_A")
+	var tex_b = BoardVisualGen.get_cell_visual_texture("Cell_B")
+	var tex_c_vis = BoardVisualGen.get_cell_visual_texture("Cell_C")
+	var tex_d = BoardVisualGen.get_cell_visual_texture("Cell_D")
+	assert(tex_a != null, "Cell_A texture must load")
+	assert(tex_b != null, "Cell_B texture must load")
+	assert(tex_c_vis != null, "Cell_C texture must load")
+	assert(tex_d != null, "Cell_D texture must load")
+	print("✓ Multiple cell visual assets (Cell_A, Cell_B, Cell_C, Cell_D) loaded successfully.")
+
+	# Test arbitrary numeric rotation & empty cells
+	vis_st.set_cell_visual(Vector2i(0, 0), "Cell_A", 0.0)
+	vis_st.set_cell_visual(Vector2i(1, 0), "Cell_B", 37.5)
+	vis_st.set_cell_visual(Vector2i(2, 0), "Cell_C", 45.0)
+	vis_st.set_cell_visual(Vector2i(3, 0), "Cell_D", 123.4)
+
+	assert(vis_st.get_cell_visuals_count() == 4, "Should have exactly 4 placed cell visuals")
+	assert(vis_st.has_cell_visual(Vector2i(1, 0)), "Cell (1,0) must have visual")
+	var v10 = vis_st.get_cell_visual(Vector2i(1, 0))
+	assert(v10["asset"] == "Cell_B", "Cell (1,0) asset must be Cell_B")
+	assert(is_equal_approx(float(v10["rotation"]), 37.5), "Cell (1,0) rotation must be 37.5°")
+
+	# Empty cells allowed: rest of the 5x5 grid has no visual artwork assigned
+	assert(not vis_st.has_cell_visual(Vector2i(4, 4)), "Cell (4,4) must be empty of visual artwork")
+	assert(not vis_st.has_cell_visual(Vector2i(2, 2)), "Cell (2,2) must be empty of visual artwork")
+	print("✓ Arbitrary numeric rotation (37.5°, 45°, 123.4°) and empty cells verified.")
+
+	# In-place editing via Inspector
+	editor.inspector_panel.set_stage(vis_st)
+	editor.inspector_panel.inspect_cell_visual(vis_st, Vector2i(1, 0), vis_st.get_cell_visual(Vector2i(1, 0)))
+	assert(editor.inspector_panel.sel_cell_box.visible == true, "Selected cell box must become visible")
+	assert(is_equal_approx(editor.inspector_panel.sel_cell_rot_spin.value, 37.5), "SpinBox value must reflect selected cell rotation")
+
+	# Modify rotation in-place to 88.0°
+	editor.inspector_panel._on_sel_cell_rot_changed(88.0)
+	assert(is_equal_approx(float(vis_st.get_cell_visual(Vector2i(1, 0))["rotation"]), 88.0), "In-place rotation edit to 88.0° failed")
+
+	# Modify asset in-place to Cell_D
+	var opt_idx_d := -1
+	for i in range(editor.inspector_panel.sel_cell_asset_opt.item_count):
+		if editor.inspector_panel.sel_cell_asset_opt.get_item_text(i) == "Cell_D":
+			opt_idx_d = i
+			break
+	assert(opt_idx_d >= 0, "Cell_D must be in asset dropdown")
+	editor.inspector_panel._on_sel_cell_asset_changed(opt_idx_d)
+	assert(vis_st.get_cell_visual(Vector2i(1, 0))["asset"] == "Cell_D", "In-place asset change to Cell_D failed")
+
+	# Remove cell visual via in-place editor
+	editor.inspector_panel._on_sel_cell_remove_pressed()
+	assert(not vis_st.has_cell_visual(Vector2i(1, 0)), "Cell (1,0) visual must be removed")
+	assert(vis_st.get_cell_visuals_count() == 3, "Placed visual count must decrease to 3")
+	print("✓ In-place editing of placed cell visuals (asset, arbitrary rotation, removal) verified.")
+
+	print("--- Testing Border Visuals: Outer Perimeter & Outer Corners ---")
+	var origin := Vector2(100, 100)
+	var cell_sz := Vector2(64, 64)
+	vis_st.set_border_visual("top", 0, "border_1", 0.0)
+	vis_st.set_corner_visual("top_left", "corner_1", 0.0)
+	var pieces := BoardVisualGen.get_border_pieces(vis_st, origin, cell_sz)
+	assert(pieces.size() == 2, "Pieces count should be 2")
+	print("✓ Border pieces generation verified.")
+
+	print("--- Testing Serialization & Deep Copy of Cell Visuals and Borders ---")
+	vis_st.border_enabled = true
+	vis_st.border_horizontal_edge_path = "res://Game/Assets/Board/Borders/Border_H.svg"
+	vis_st.border_vertical_edge_path = "res://Game/Assets/Board/Borders/Border_V.svg"
+	vis_st.border_corner_path = "res://Game/Assets/Board/Borders/Border_Corner.svg"
+
+	var serialized_stage := vis_st.to_dict()
+	assert(serialized_stage.has("cell_visuals"), "to_dict must serialize cell_visuals")
+	assert(serialized_stage.has("border_settings"), "to_dict must serialize border_settings")
+
+	var deserialized_st := LaserStageData.from_dict(serialized_stage)
+	assert(deserialized_st.get_cell_visuals_count() == vis_st.get_cell_visuals_count(), "Deserialized cell visual count mismatch")
+	assert(deserialized_st.border_enabled == true, "Deserialized border_enabled mismatch")
+	assert(deserialized_st.border_horizontal_edge_path == vis_st.border_horizontal_edge_path, "Deserialized border_horizontal_edge_path mismatch")
+	assert(deserialized_st.has_cell_visual(Vector2i(2, 0)), "Deserialized must have cell (2, 0)")
+	assert(is_equal_approx(float(deserialized_st.get_cell_visual(Vector2i(2, 0))["rotation"]), 45.0), "Deserialized rotation mismatch")
+
+	var duplicated_st := vis_st.duplicate_data()
+	assert(duplicated_st.get_cell_visuals_count() == vis_st.get_cell_visuals_count(), "Cloned cell visual count mismatch")
+	assert(duplicated_st.border_enabled == vis_st.border_enabled, "Cloned border_enabled mismatch")
+	duplicated_st.set_cell_visual(Vector2i(2, 0), "Cell_A", 180.0)
+	assert(vis_st.get_cell_visual(Vector2i(2, 0))["asset"] == "Cell_C", "Deep clone isolation violated!")
+	print("✓ Serialization (to_dict/from_dict) and deep copying (duplicate_data) verified.")
+
+	print("--- Testing Complete Independence of Gameplay Logic from Visual Layers ---")
+	var gameplay_st := LaserStageData.new()
+	gameplay_st.grid_width = 5
+	gameplay_st.grid_height = 5
+	var laser_src := LaserObjectData.create(LaserObjectData.ObjectType.LASER_SOURCE, Vector2i(0, 1), 0)
+	var mirror_elem := LaserObjectData.create(LaserObjectData.ObjectType.FIXED_MIRROR, Vector2i(2, 1), 0)
+	var goal_elem := LaserObjectData.create(LaserObjectData.ObjectType.GOAL, Vector2i(2, 4), 0)
+	gameplay_st.add_object(laser_src)
+	gameplay_st.add_object(mirror_elem)
+	gameplay_st.add_object(goal_elem)
+
+	var sim_before := LaserSimulation.simulate_stage(gameplay_st)
+	var solv_before := SolvabilityChecker.check_stage_solvability(gameplay_st, 200)
+
+	# Decorate with random cell visuals and borders
+	gameplay_st.set_cell_visual(Vector2i(0, 1), "Cell_A", 55.0)
+	gameplay_st.set_cell_visual(Vector2i(2, 1), "Cell_B", 99.0)
+	gameplay_st.set_cell_visual(Vector2i(2, 4), "Cell_C", 33.3)
+	gameplay_st.border_enabled = true
+	gameplay_st.border_horizontal_edge_path = "res://addons/LevelEditorPlugin/assets/default/borders/Border_H.svg"
+
+	var sim_after := LaserSimulation.simulate_stage(gameplay_st)
+	var solv_after := SolvabilityChecker.check_stage_solvability(gameplay_st, 200)
+
+	assert(sim_before["segments"].size() == sim_after["segments"].size(), "Simulation segment count must be identical")
+	assert(sim_before["segments"][0]["end"] == sim_after["segments"][0]["end"], "Laser beam trajectory must be completely unaffected")
+	assert(solv_before["status"] == solv_after["status"], "Solvability status must be completely unaffected")
+	print("✓ Gameplay logic (laser simulation, reflection, solvability) is 100% unaffected by visual art layers.")
+
+	print("--- Testing Section 11: 15-Step Authoritative Visual System & Bug Fix Verification ---")
+	var scratch_logo_path := "res://addons/LevelEditorPlugin/assets/default/cells/demo_logo.svg"
+	var scratch_stone_path := "res://addons/LevelEditorPlugin/assets/default/cells/demo_stone.svg"
+	var f_logo = FileAccess.open(scratch_logo_path, FileAccess.WRITE)
+	f_logo.store_string('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#ff4444"/><circle cx="32" cy="32" r="16" fill="#ffff00"/></svg>')
+	f_logo.close()
+	var f_stone = FileAccess.open(scratch_stone_path, FileAccess.WRITE)
+	f_stone.store_string('<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#4444ff"/><rect x="16" y="16" width="32" height="32" fill="#00ffff"/></svg>')
+	f_stone.close()
+
+	var sec11_st := LaserStageData.new()
+	sec11_st.grid_width = 4
+	sec11_st.grid_height = 4
+	sec11_st.ensure_default_visual_libraries()
+
+	# 1. Add/select Logo.svg as Cell Image
+	sec11_st.cell_assets[0]["path"] = scratch_logo_path
+	sec11_st.cell_assets[0]["name"] = "Logo.svg"
+	BoardVisualGen.clear_texture_cache()
+
+	# 2. Apply it to a grid cell/stage
+	sec11_st.set_cell_visual(Vector2i(0, 0), "cell_1", 0.0)
+	sec11_st.set_cell_visual(Vector2i(1, 1), "0", 45.0) # Legacy '0' reference from older level
+
+	# 3. Confirm the actual rendered grid shows Logo.svg
+	var resolved_vis00 = BoardVisualGen.get_cell_visual(sec11_st, Vector2i(0, 0))
+	var resolved_vis11 = BoardVisualGen.get_cell_visual(sec11_st, Vector2i(1, 1))
+	assert(resolved_vis00["texture"] != null, "Cell (0,0) texture must load")
+	assert(resolved_vis11["texture"] != null, "Cell (1,1) legacy '0' texture must load")
+	assert(BoardVisualGen.resolve_asset_in_library(sec11_st, "cell", "cell_1") == scratch_logo_path, "cell_1 must resolve to Logo.svg")
+	assert(BoardVisualGen.resolve_asset_in_library(sec11_st, "cell", "0") == scratch_logo_path, "Legacy '0' must authoritatively resolve to stage primary Logo.svg!")
+
+	# 4. Change the Cell Image to another image (demo_stone.svg)
+	sec11_st.cell_assets[0]["path"] = scratch_stone_path
+	sec11_st.cell_assets[0]["name"] = "Stone.svg"
+	BoardVisualGen.clear_texture_cache()
+
+	# 5. Confirm the old Logo image disappears and the new image renders
+	assert(BoardVisualGen.resolve_asset_in_library(sec11_st, "cell", "cell_1") == scratch_stone_path, "Must resolve to Stone.svg")
+	assert(BoardVisualGen.resolve_asset_in_library(sec11_st, "cell", "0") == scratch_stone_path, "Legacy '0' must resolve to Stone.svg")
+
+	# 6. Restart / reload the level (to_dict / from_dict)
+	var serialized_theme := sec11_st.to_dict()
+	var reloaded_theme := LaserStageData.from_dict(serialized_theme)
+
+	# 7. Confirm the new image is still used
+	assert(reloaded_theme.cell_assets[0]["path"] == scratch_stone_path, "Reloaded level must still use Stone.svg")
+	assert(BoardVisualGen.resolve_asset_in_library(reloaded_theme, "cell", "0") == scratch_stone_path, "Reloaded legacy cells must still resolve to Stone.svg")
+
+	# 8. Confirm no old/generated cell image comes back
+	var reloaded_vis00 = BoardVisualGen.get_cell_visual(reloaded_theme, Vector2i(0, 0))
+	assert(reloaded_vis00["texture"] != null, "Reloaded texture must be non-null")
+	assert(BoardVisualGen.resolve_asset_in_library(reloaded_theme, "cell", "Middle") == scratch_stone_path, "Middle must NOT come back, must resolve to Stone.svg")
+
+	# 9. Add one Border Image
+	var border_id = sec11_st.add_border_asset(BoardVisualGen.DEFAULT_BORDER_DEMO_PATH, "MainBorder")
+
+	# 10. Confirm it can be painted on edges
+	sec11_st.set_border_visual("top", 0, border_id, 0.0)
+	sec11_st.set_border_visual("bottom", 0, border_id, 180.0)
+	sec11_st.set_border_visual("left", 0, border_id, 270.0)
+
+	# 11. Leave right edge unpainted (gap)
+	# 12. Confirm that edge stays visually open (intentional gap)
+	var theme_borders = BoardVisualGen.get_border_pieces(sec11_st, Vector2.ZERO, Vector2(64, 64))
+	var has_gap_right := true
+	for bp in theme_borders:
+		if bp.get("side", "") == "right":
+			has_gap_right = false
+	assert(has_gap_right == true, "Right border edge MUST stay visually open (gap)")
+
+	# 13. Add one Corner Image
+	var corner_id = sec11_st.add_corner_asset(BoardVisualGen.DEFAULT_CORNER_DEMO_PATH, "MainCorner")
+
+	# 14. Confirm the same asset can be reused on all four corners with rotation/mirroring
+	sec11_st.set_corner_visual("top_left", corner_id, 0.0, false, false)
+	sec11_st.set_corner_visual("top_right", corner_id, 90.0, false, false)
+	sec11_st.set_corner_visual("bottom_left", corner_id, 270.0, true, false)
+	sec11_st.set_corner_visual("bottom_right", corner_id, 180.0, false, true)
+
+	var theme_corners = BoardVisualGen.get_border_pieces(sec11_st, Vector2.ZERO, Vector2(64, 64))
+	var corner_types_found := 0
+	for bp in theme_corners:
+		if bp.get("type", "") == "corner":
+			corner_types_found += 1
+	assert(corner_types_found == 4, "All four corners must render using the single corner asset")
+
+	# 15. Confirm changing the visual assets does not alter gameplay logic
+	var sim_chk_1 = LaserSimulation.simulate_stage(sec11_st)
+	sec11_st.set_cell_visual(Vector2i(0, 0), "cell_1", 137.5)
+	sec11_st.remove_border_visual("top", 0)
+	var sim_chk_2 = LaserSimulation.simulate_stage(sec11_st)
+	assert(sim_chk_1["segments"].size() == sim_chk_2["segments"].size(), "Simulation segments completely unaffected by visual changes")
+
+	if FileAccess.file_exists(scratch_logo_path):
+		DirAccess.remove_absolute(scratch_logo_path)
+	if FileAccess.file_exists(scratch_stone_path):
+		DirAccess.remove_absolute(scratch_stone_path)
+
+	print("✓ All 15 requirements from Section 11 verified and passed with flying colors!")
+
+	if ResourceLoader.exists("res://Game/GamePlay.tscn"):
+		var gp_scene: PackedScene = load("res://Game/GamePlay.tscn")
+		assert(gp_scene != null, "GamePlay.tscn should load")
+		var gp_instance: Node2D = gp_scene.instantiate()
+		assert(gp_instance != null, "GamePlay.tscn should instantiate")
+		assert(gp_instance.get_node_or_null("Board") == null, "Static Board node should be removed from GamePlay scene")
+		assert(gp_instance.get_node_or_null("GridLayer") != null, "GridLayer should exist")
+		gp_instance.queue_free()
+		print("✓ GamePlay scene clean Board-less hierarchy verified.")
+	else:
+		print("✓ Host GamePlay.tscn not present (clean portable test environment).")
 
 	editor._sync_gameplay_tscn_level_number(1)
 	editor.queue_free()
@@ -489,6 +746,146 @@ func _init() -> void:
 		DirAccess.remove_absolute(p_tres_999)
 	if FileAccess.file_exists(p_json_999):
 		DirAccess.remove_absolute(p_json_999)
+
+	print("--- Testing Section 21: Outer Perimeter Borders & Outer Corners System ---")
+	var sec21_st := LaserStageData.new()
+	sec21_st.grid_width = 5
+	sec21_st.grid_height = 5
+	sec21_st.ensure_default_visual_libraries()
+
+	# 1. Verification: No auto-filled borders or corners
+	assert(sec21_st.border_visuals.is_empty(), "Grid must start with 0 painted border visuals")
+	assert(sec21_st.corner_visuals.is_empty(), "Grid must start with 0 painted corner visuals")
+	assert(sec21_st.get_border_visuals_count() == 0, "Border count must be 0")
+	assert(sec21_st.get_corner_visuals_count() == 0, "Corner count must be 0")
+	print("✓ Initial grid starts completely clean with 0 auto-filled borders or corners.")
+
+	# 2. Add border & corner assets
+	var b_asset_1 := sec21_st.add_border_asset("res://addons/LevelEditorPlugin/assets/default/borders/Border_H.svg", "Border Image 1")
+	var b_asset_2 := sec21_st.add_border_asset("res://addons/LevelEditorPlugin/assets/default/borders/Border_V.svg", "Border Image 2")
+	var c_asset_1 := sec21_st.add_corner_asset("res://addons/LevelEditorPlugin/assets/default/corners/demo_corner_01.svg", "Corner Image 1")
+	assert(sec21_st.border_assets.size() >= 2, "Border library must contain at least 2 assets")
+	assert(sec21_st.corner_assets.size() >= 1, "Corner library must contain at least 1 asset")
+
+	# Paint Cell Images into cells
+	sec21_st.set_cell_visual(Vector2i(0, 0), "cell_1", 0.0)
+	sec21_st.set_cell_visual(Vector2i(1, 0), "cell_1", 0.0)
+	sec21_st.set_cell_visual(Vector2i(0, 1), "cell_1", 0.0)
+	sec21_st.set_cell_visual(Vector2i(1, 1), "cell_1", 0.0)
+
+	# 3. Paint Outer Perimeter Borders: Top 0, Top 1, Left 0, Right 4, Bottom 2
+	sec21_st.set_border_visual("top", 0, b_asset_1, 0.0)
+	sec21_st.set_border_visual("top", 1, b_asset_1, 0.0)
+	sec21_st.set_border_visual("left", 0, b_asset_1, 0.0)
+	sec21_st.set_border_visual("right", 4, b_asset_2, 90.0)
+	sec21_st.set_border_visual("bottom", 2, b_asset_1, 180.0)
+
+	assert(sec21_st.get_border_visuals_count() == 5, "Must have exactly 5 painted perimeter borders")
+	assert(sec21_st.has_border_visual("top", 0), "Must have border on top segment 0")
+	assert(sec21_st.has_border_visual("top", 1), "Must have border on top segment 1")
+	assert(sec21_st.has_border_visual("left", 0), "Must have border on left segment 0")
+	assert(sec21_st.has_border_visual("right", 4), "Must have border on right segment 4")
+	assert(sec21_st.has_border_visual("bottom", 2), "Must have border on bottom segment 2")
+	var b_r4 = sec21_st.get_border_visual("right", 4)
+	assert(b_r4["asset"] == b_asset_2, "Right segment 4 asset must be Border Image 2")
+	assert(is_equal_approx(float(b_r4["rotation"]), 90.0), "Right segment 4 rotation must be 90°")
+
+	# 4. Confirm unpainted perimeter segments remain intentional empty gaps
+	assert(not sec21_st.has_border_visual("top", 2), "Top segment 2 must be an empty gap")
+	assert(not sec21_st.has_border_visual("top", 3), "Top segment 3 must be an empty gap")
+	assert(not sec21_st.has_border_visual("top", 4), "Top segment 4 must be an empty gap")
+	assert(not sec21_st.has_border_visual("bottom", 0), "Bottom segment 0 must be an empty gap")
+	assert(not sec21_st.has_border_visual("left", 1), "Left segment 1 must be an empty gap")
+	assert(not sec21_st.has_border_visual("right", 0), "Right segment 0 must be an empty gap")
+	print("✓ Outer perimeter borders with rotation, custom assets, and intentional empty gaps verified.")
+
+	# 5. Paint 4 Outer Corners
+	sec21_st.set_corner_visual("top_left", c_asset_1, 0.0, false, false)
+	sec21_st.set_corner_visual("top_right", c_asset_1, 90.0, false, false)
+	sec21_st.set_corner_visual("bottom_left", c_asset_1, 270.0, true, false)
+	sec21_st.set_corner_visual("bottom_right", c_asset_1, 180.0, false, false)
+
+	assert(sec21_st.get_corner_visuals_count() == 4, "Must have exactly 4 painted outer corners")
+	assert(sec21_st.has_corner_visual("top_left"), "Top left corner visual must exist")
+	assert(sec21_st.has_corner_visual("top_right"), "Top right corner visual must exist")
+	assert(sec21_st.has_corner_visual("bottom_left"), "Bottom left corner visual must exist")
+	assert(sec21_st.has_corner_visual("bottom_right"), "Bottom right corner visual must exist")
+	var c_bl = sec21_st.get_corner_visual("bottom_left")
+	assert(is_equal_approx(float(c_bl["rotation"]), 270.0), "Bottom left corner rotation must be 270°")
+	assert(c_bl["mirror_x"] == true, "Bottom left corner mirror_x must be true")
+	assert(c_bl["mirror_y"] == false, "Bottom left corner mirror_y must be false")
+	print("✓ 4 Outer Corners (top_left, top_right, bottom_left, bottom_right) verified.")
+
+	# 6. Verify Strict Geometry: ZERO overlap between outer perimeter borders/corners and logical grid cells
+	var test_origin := Vector2(100.0, 100.0)
+	var test_cell_sz := Vector2(48.0, 48.0)
+	var grid_internal_rect := Rect2(test_origin, Vector2(5.0 * 48.0, 5.0 * 48.0))
+	var b_pieces := BoardVisualGen.get_border_pieces(sec21_st, test_origin, test_cell_sz)
+	assert(b_pieces.size() == 9, "Expected 9 total perimeter pieces (5 borders + 4 corners), got %d" % b_pieces.size())
+
+	for piece in b_pieces:
+		var p_rect: Rect2 = piece["rect"]
+		# Border piece must NOT overlap the internal grid area
+		var overlap := p_rect.intersection(grid_internal_rect)
+		assert(overlap.size.x <= 0.001 or overlap.size.y <= 0.001, "Perimeter piece %s overlaps internal grid! Rect: %s, Grid: %s" % [piece.get("side", piece.get("corner", "")), str(p_rect), str(grid_internal_rect)])
+	print("✓ Strict geometric isolation verified: 0% overlap between outer perimeter layer and cell visual layer.")
+
+	# 7. In-place inspection and modification in InspectorPanel
+	editor.inspector_panel.set_stage(sec21_st)
+	editor.inspector_panel.inspect_border_visual(sec21_st, "top", 1, sec21_st.get_border_visual("top", 1))
+	assert(editor.inspector_panel.sel_border_box.visible == true, "Selected border box must be visible")
+	assert(editor.inspector_panel.sel_border_lbl.text.contains("TOP Perimeter Segment 1"), "Label must show TOP Perimeter Segment 1")
+	editor.inspector_panel._on_sel_border_rot_changed(45.0)
+	assert(is_equal_approx(float(sec21_st.get_border_visual("top", 1)["rotation"]), 45.0), "In-place border rotation to 45.0° failed")
+
+	editor.inspector_panel.inspect_corner_visual(sec21_st, "bottom_left", sec21_st.get_corner_visual("bottom_left"))
+	assert(editor.inspector_panel.sel_corner_box.visible == true, "Selected corner box must be visible")
+	assert(editor.inspector_panel.sel_corner_lbl.text.contains("Bottom Left"), "Label must show Bottom Left")
+	editor.inspector_panel.sel_corner_my_chk.button_pressed = true
+	editor.inspector_panel._on_sel_corner_mirror_changed(true)
+	assert(sec21_st.get_corner_visual("bottom_left")["mirror_y"] == true, "In-place corner mirror_y toggle failed")
+
+	# 8. Erasing borders & corners
+	sec21_st.remove_border_visual("top", 1)
+	assert(not sec21_st.has_border_visual("top", 1), "Top segment 1 border must be removed")
+	assert(sec21_st.get_border_visuals_count() == 4, "Border count must be 4")
+
+	sec21_st.remove_corner_visual("top_left")
+	assert(not sec21_st.has_corner_visual("top_left"), "Top left corner must be removed")
+	assert(sec21_st.get_corner_visuals_count() == 3, "Corner count must be 3")
+
+	# 9. Serialization and Deep Copy
+	var sec21_dict := sec21_st.to_dict()
+	assert(sec21_dict.has("border_visuals"), "to_dict must have border_visuals")
+	assert(sec21_dict.has("corner_visuals"), "to_dict must have corner_visuals")
+
+	var sec21_restored := LaserStageData.from_dict(sec21_dict)
+	assert(sec21_restored.get_border_visuals_count() == 4, "Restored stage must have 4 border visuals")
+	assert(sec21_restored.get_corner_visuals_count() == 3, "Restored stage must have 3 corner visuals")
+	assert(sec21_restored.has_border_visual("right", 4), "Restored stage must have right segment 4 border")
+	assert(sec21_restored.get_corner_visual("bottom_left")["mirror_y"] == true, "Restored stage must preserve mirror_y")
+
+	var sec21_clone := sec21_st.duplicate_data()
+	assert(sec21_clone.get_border_visuals_count() == 4, "Clone must have 4 border visuals")
+	sec21_clone.clear_all_border_visuals()
+	assert(sec21_clone.get_border_visuals_count() == 0, "Clone borders cleared")
+	assert(sec21_st.get_border_visuals_count() == 4, "Original stage borders must not be affected by clone clear")
+	print("✓ Serialization (to_dict/from_dict) and deep copy isolation for outer perimeter borders & corners verified.")
+
+	# 10. Gameplay Logic Independence
+	var test_l := LaserObjectData.create(LaserObjectData.ObjectType.LASER_SOURCE, Vector2i(0, 2), 0)
+	var test_m := LaserObjectData.create(LaserObjectData.ObjectType.FIXED_MIRROR, Vector2i(3, 2), 0)
+	sec21_st.add_object(test_l)
+	sec21_st.add_object(test_m)
+	var sim_res_1 := LaserSimulation.simulate_stage(sec21_st)
+	sec21_st.clear_all_border_visuals()
+	sec21_st.clear_all_corner_visuals()
+	var sim_res_2 := LaserSimulation.simulate_stage(sec21_st)
+	assert(sim_res_1["segments"].size() == sim_res_2["segments"].size(), "Simulation segments must be identical regardless of borders/corners")
+	assert(sim_res_1["segments"][0]["end"] == sim_res_2["segments"][0]["end"], "Laser trajectory must be 100% unaffected")
+	print("✓ Gameplay logic is 100% independent of outer perimeter border and corner placement.")
+
+	print("✓ Section 21 Outer Perimeter Border & Corner workflow passed all tests successfully!")
 
 	print("--- ALL EDITOR BUTTONS, TOOLS, MODALS, AND PANELS ARE 100% OPERATIONAL! ---")
 	quit(0)

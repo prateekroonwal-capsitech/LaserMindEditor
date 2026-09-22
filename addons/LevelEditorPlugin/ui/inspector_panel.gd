@@ -3,7 +3,6 @@ extends PanelContainer
 class_name InspectorPanel
 
 const SceneDropLineEdit = preload("res://addons/LevelEditorPlugin/ui/scene_drop_line_edit.gd")
-const BoardLayoutManager = preload("res://Game/Scripts/board_layout_manager.gd")
 
 signal object_changed(object: LaserObjectData)
 signal stage_settings_changed(stage: LaserStageData)
@@ -14,6 +13,14 @@ signal custom_name_renamed(index: int, new_name: String)
 signal request_snap_stage_position()
 signal tile_paint_selected(tile_coord: Vector2i)
 signal tile_tool_mode_requested(tool_mode: int)
+signal cell_visual_paint_selected(asset: String, rot_deg: float)
+signal cell_visual_modified(stage: LaserStageData, cell: Vector2i, asset: String, rot_deg: float)
+signal border_visual_paint_selected(asset: String, rot_deg: float)
+signal border_visual_modified(stage: LaserStageData, side: String, index: int, asset: String, rot_deg: float)
+signal border_erase_selected()
+signal corner_visual_paint_selected(asset: String, rot_deg: float, mirror_x: bool, mirror_y: bool)
+signal corner_visual_modified(stage: LaserStageData, corner: String, asset: String, rot_deg: float, mirror_x: bool, mirror_y: bool)
+signal corner_erase_selected()
 
 const CUSTOM_TYPE_ID_BASE: int = 100
 
@@ -57,32 +64,82 @@ var stage_pos_y_spin: SpinBox
 var stage_pos_status_lbl: Label
 
 var stage_transition_dir_option: OptionButton
-var stage_board_img_edit: LineEdit
-var stage_slice_cols_spin: SpinBox
-var stage_slice_rows_spin: SpinBox
-var stage_img_file_dialog: FileDialog
-var stage_margin_l_spin: SpinBox
-var stage_margin_t_spin: SpinBox
-var stage_margin_r_spin: SpinBox
-var stage_margin_b_spin: SpinBox
-var stage_autodetect_btn: Button
-var stage_tile_borders_chk: CheckBox
-var stage_frame_pieces_lbl: Label
-
 var tab_tile_btn: Button
 var tile_section: VBoxContainer
-var tile_preview_size: int = 54
-var big_tile_dialog: AcceptDialog = null
-var big_dialog_grid: GridContainer = null
-var big_dialog_status: Label = null
-var big_dialog_buttons: Dictionary = {}
-var tile_status_lbl: Label
-var tile_preview_scroll: ScrollContainer
-var tile_grid_container: GridContainer
+var tile_type_buttons: Dictionary = {}
+var tile_rot_buttons: Dictionary = {}
 var tile_buttons: Dictionary = {}
+var selected_tile_type: int = 0
+var selected_tile_rot: int = 0
 var selected_tile_coord: Vector2i = Vector2i(0, 0)
 var tile_paint_btn: Button
 var tile_erase_btn: Button
+var tile_status_lbl: Label
+
+# Cell Visuals & Arbitrary Rotation State
+var active_cell_asset: String = "cell_1"
+var active_cell_rot: float = 0.0
+var active_cell_opt: OptionButton
+var cell_asset_buttons: Dictionary = {}
+var cell_rot_spin: SpinBox
+
+# In-Place Placed Cell Visual Editor
+var sel_cell_box: VBoxContainer
+var sel_cell_lbl: Label
+var sel_cell_asset_opt: OptionButton
+var sel_cell_rot_spin: SpinBox
+var current_selected_visual_cell: Vector2i = Vector2i(-1, -1)
+
+# --- Border Visuals State ---
+var active_border_asset: String = "border_1"
+var active_border_rot: float = 0.0
+var active_border_opt: OptionButton
+var active_border_rot_spin: SpinBox
+var border_rot_buttons: Dictionary = {}
+var border_paint_btn: Button
+var border_erase_btn: Button
+var border_status_lbl: Label
+var border_asset_buttons: Dictionary = {}
+
+var sel_border_box: VBoxContainer
+var sel_border_lbl: Label
+var sel_border_asset_opt: OptionButton
+var sel_border_rot_spin: SpinBox
+var current_selected_border_side: String = ""
+var current_selected_border_index: int = -1
+
+# --- Corner Visuals State ---
+var active_corner_asset: String = "corner_1"
+var active_corner_rot: float = 0.0
+var active_corner_mirror_x: bool = false
+var active_corner_mirror_y: bool = false
+var active_corner_opt: OptionButton
+var active_corner_rot_spin: SpinBox
+var active_corner_mx_chk: CheckBox
+var active_corner_my_chk: CheckBox
+var corner_rot_buttons: Dictionary = {}
+var corner_paint_btn: Button
+var corner_erase_btn: Button
+var corner_status_lbl: Label
+var corner_asset_buttons: Dictionary = {}
+
+var sel_corner_box: VBoxContainer
+var sel_corner_lbl: Label
+var sel_corner_asset_opt: OptionButton
+var sel_corner_rot_spin: SpinBox
+var sel_corner_mx_chk: CheckBox
+var sel_corner_my_chk: CheckBox
+var current_selected_corner_name: String = ""
+
+# --- 3-Library Visual Asset Model Containers ---
+var cell_assets_container: VBoxContainer
+var border_assets_container: VBoxContainer
+var corner_assets_container: VBoxContainer
+
+# Border File Dialog
+var border_enable_chk: CheckBox
+var border_file_dialog: FileDialog
+var border_file_target_prop: String = ""
 
 var lvl_id_spin: SpinBox
 var lvl_name_edit: LineEdit
@@ -374,302 +431,524 @@ func _setup_ui() -> void:
 	stage_section.add_child(trans_row)
 
 	# --- DEDICATED TILES SECTION (Only shown in '🧩 Tiles' Tab) ---
-	tile_section = _create_section(main_vbox, "BOARD TILEMAP STUDIO")
+	tile_section = _create_section(main_vbox, "TILES")
 
-	var board_hdr := Label.new()
-	board_hdr.text = "🧩 Board Image & Sliced Tilemap"
-	board_hdr.add_theme_font_size_override("font_size", 12)
-	board_hdr.modulate = Color(1.0, 0.85, 0.35)
-	tile_section.add_child(board_hdr)
+	# =========================================================================
+	# 1. CELL IMAGES
+	# =========================================================================
+	var cell_vis_hdr := Label.new()
+	cell_vis_hdr.text = "🎨 CELL IMAGES"
+	cell_vis_hdr.add_theme_font_size_override("font_size", 12)
+	cell_vis_hdr.modulate = Color(1.0, 0.85, 0.35)
+	tile_section.add_child(cell_vis_hdr)
 
-	var b_row := HBoxContainer.new()
-	stage_board_img_edit = LineEdit.new()
-	stage_board_img_edit.placeholder_text = "res://... or file path"
-	stage_board_img_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	stage_board_img_edit.text_submitted.connect(_on_stage_board_img_changed)
-	b_row.add_child(stage_board_img_edit)
+	cell_assets_container = VBoxContainer.new()
+	cell_assets_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cell_assets_container.add_theme_constant_override("separation", 4)
+	tile_section.add_child(cell_assets_container)
 
-	var b_browse := Button.new()
-	b_browse.text = "📂"
-	b_browse.tooltip_text = "Browse board image..."
-	b_browse.pressed.connect(func():
-		if stage_img_file_dialog != null:
-			stage_img_file_dialog.popup_centered_ratio(0.7)
+	var add_cell_btn := Button.new()
+	add_cell_btn.text = "➕ Add Cell Image"
+	add_cell_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	add_cell_btn.pressed.connect(func():
+		_browse_file("add_cell", func(p: String):
+			if current_stage != null:
+				var new_id = current_stage.add_cell_asset(p)
+				_select_cell_asset(new_id)
+				stage_settings_changed.emit(current_stage)
+				_refresh_tiles_ui()
+		)
 	)
-	b_row.add_child(b_browse)
-	tile_section.add_child(b_row)
+	tile_section.add_child(add_cell_btn)
 
-	stage_img_file_dialog = FileDialog.new()
-	stage_img_file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
-	stage_img_file_dialog.access = FileDialog.ACCESS_RESOURCES
-	stage_img_file_dialog.filters = PackedStringArray(["*.png, *.jpg, *.jpeg, *.webp ; Image Files", "* ; All Files"])
-	stage_img_file_dialog.file_selected.connect(func(path: String):
-		stage_board_img_edit.text = path
-		_on_stage_board_img_changed(path)
-	)
-	add_child(stage_img_file_dialog)
+	var act_cell_lbl := Label.new()
+	act_cell_lbl.text = "Active Paint Cell:"
+	act_cell_lbl.add_theme_font_size_override("font_size", 11)
+	act_cell_lbl.modulate = Color(0.8, 0.9, 1.0)
+	tile_section.add_child(act_cell_lbl)
 
-	var b_slice_row := HBoxContainer.new()
-	var b_clbl := Label.new()
-	b_clbl.text = "Slice (Cols, Rows):"
-	b_slice_row.add_child(b_clbl)
-	stage_slice_cols_spin = SpinBox.new()
-	stage_slice_cols_spin.min_value = 1
-	stage_slice_cols_spin.max_value = 32
-	stage_slice_cols_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	stage_slice_cols_spin.value_changed.connect(_on_stage_board_slice_changed)
-	b_slice_row.add_child(stage_slice_cols_spin)
-	stage_slice_rows_spin = SpinBox.new()
-	stage_slice_rows_spin.min_value = 1
-	stage_slice_rows_spin.max_value = 32
-	stage_slice_rows_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	stage_slice_rows_spin.value_changed.connect(_on_stage_board_slice_changed)
-	b_slice_row.add_child(stage_slice_rows_spin)
-	tile_section.add_child(b_slice_row)
+	active_cell_opt = OptionButton.new()
+	active_cell_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	active_cell_opt.item_selected.connect(_on_active_cell_opt_changed)
+	tile_section.add_child(active_cell_opt)
 
-	var m_hdr := Label.new()
-	m_hdr.text = "Frame Margins (L, T, R, B):"
-	m_hdr.add_theme_font_size_override("font_size", 11)
-	m_hdr.modulate = Color(0.8, 0.85, 0.95)
-	tile_section.add_child(m_hdr)
+	var rot_hdr := Label.new()
+	rot_hdr.text = "Active Paint Rotation:"
+	rot_hdr.add_theme_font_size_override("font_size", 11)
+	rot_hdr.modulate = Color(0.8, 0.9, 1.0)
+	tile_section.add_child(rot_hdr)
 
-	var m_row := HBoxContainer.new()
-	stage_margin_l_spin = SpinBox.new()
-	stage_margin_l_spin.min_value = 0
-	stage_margin_l_spin.max_value = 512
-	stage_margin_l_spin.prefix = "L:"
-	stage_margin_l_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	stage_margin_l_spin.value_changed.connect(_on_stage_board_margins_changed)
-	m_row.add_child(stage_margin_l_spin)
+	var cell_rot_row := HBoxContainer.new()
+	cell_rot_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cell_rot_row.add_theme_constant_override("separation", 4)
 
-	stage_margin_t_spin = SpinBox.new()
-	stage_margin_t_spin.min_value = 0
-	stage_margin_t_spin.max_value = 512
-	stage_margin_t_spin.prefix = "T:"
-	stage_margin_t_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	stage_margin_t_spin.value_changed.connect(_on_stage_board_margins_changed)
-	m_row.add_child(stage_margin_t_spin)
+	cell_rot_spin = SpinBox.new()
+	cell_rot_spin.min_value = -360.0
+	cell_rot_spin.max_value = 360.0
+	cell_rot_spin.step = 0.1
+	cell_rot_spin.value = 0.0
+	cell_rot_spin.suffix = "°"
+	cell_rot_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cell_rot_spin.value_changed.connect(_on_cell_rot_changed)
+	cell_rot_row.add_child(cell_rot_spin)
 
-	stage_margin_r_spin = SpinBox.new()
-	stage_margin_r_spin.min_value = 0
-	stage_margin_r_spin.max_value = 512
-	stage_margin_r_spin.prefix = "R:"
-	stage_margin_r_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	stage_margin_r_spin.value_changed.connect(_on_stage_board_margins_changed)
-	m_row.add_child(stage_margin_r_spin)
+	tile_rot_buttons.clear()
+	for deg in [0, 90, 180, 270]:
+		var r_btn := Button.new()
+		r_btn.text = "%d°" % deg
+		r_btn.custom_minimum_size = Vector2(34, 0)
+		r_btn.pressed.connect(func():
+			_select_tile_rot(deg)
+		)
+		cell_rot_row.add_child(r_btn)
+		tile_rot_buttons[deg] = r_btn
+	tile_section.add_child(cell_rot_row)
 
-	stage_margin_b_spin = SpinBox.new()
-	stage_margin_b_spin.min_value = 0
-	stage_margin_b_spin.max_value = 512
-	stage_margin_b_spin.prefix = "B:"
-	stage_margin_b_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	stage_margin_b_spin.value_changed.connect(_on_stage_board_margins_changed)
-	m_row.add_child(stage_margin_b_spin)
-	tile_section.add_child(m_row)
+	var cell_tool_row := HBoxContainer.new()
+	cell_tool_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	cell_tool_row.add_theme_constant_override("separation", 4)
 
-	var m_actions := HBoxContainer.new()
-	stage_autodetect_btn = Button.new()
-	stage_autodetect_btn.text = "🎯 Auto-Detect Frame Margins"
-	stage_autodetect_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	stage_autodetect_btn.tooltip_text = "Automatically scan image borders and set frame margins"
-	stage_autodetect_btn.pressed.connect(_on_autodetect_margins_pressed)
-	m_actions.add_child(stage_autodetect_btn)
-
-	var m_reset_btn := Button.new()
-	m_reset_btn.text = "Reset (0)"
-	m_reset_btn.tooltip_text = "Reset margins to 0 (full texture)"
-	m_reset_btn.pressed.connect(func():
-		if current_stage != null:
-			current_stage.set_board_margins(0, 0, 0, 0)
-			_update_margin_spinboxes()
-			stage_settings_changed.emit(current_stage)
-			_rebuild_inspector_tile_preview()
-			_rebuild_big_dialog_tiles()
-	)
-	m_actions.add_child(m_reset_btn)
-	tile_section.add_child(m_actions)
-
-	var p_hdr := Label.new()
-	p_hdr.text = "Frame Piece Controls:"
-	p_hdr.add_theme_font_size_override("font_size", 11)
-	p_hdr.modulate = Color(0.8, 0.85, 0.95)
-	tile_section.add_child(p_hdr)
-
-	var p_row := HBoxContainer.new()
-	var toggle_t_btn := Button.new()
-	toggle_t_btn.text = "Top"
-	toggle_t_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	toggle_t_btn.tooltip_text = "Toggle all top border pieces"
-	toggle_t_btn.pressed.connect(func():
-		if current_stage != null:
-			current_stage.toggle_side_frame_pieces("T")
-			stage_settings_changed.emit(current_stage)
-			_update_frame_pieces_display()
-	)
-	p_row.add_child(toggle_t_btn)
-
-	var toggle_b_btn := Button.new()
-	toggle_b_btn.text = "Bottom"
-	toggle_b_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	toggle_b_btn.tooltip_text = "Toggle all bottom border pieces"
-	toggle_b_btn.pressed.connect(func():
-		if current_stage != null:
-			current_stage.toggle_side_frame_pieces("B")
-			stage_settings_changed.emit(current_stage)
-			_update_frame_pieces_display()
-	)
-	p_row.add_child(toggle_b_btn)
-
-	var toggle_l_btn := Button.new()
-	toggle_l_btn.text = "Left"
-	toggle_l_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	toggle_l_btn.tooltip_text = "Toggle all left border pieces"
-	toggle_l_btn.pressed.connect(func():
-		if current_stage != null:
-			current_stage.toggle_side_frame_pieces("L")
-			stage_settings_changed.emit(current_stage)
-			_update_frame_pieces_display()
-	)
-	p_row.add_child(toggle_l_btn)
-
-	var toggle_r_btn := Button.new()
-	toggle_r_btn.text = "Right"
-	toggle_r_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	toggle_r_btn.tooltip_text = "Toggle all right border pieces"
-	toggle_r_btn.pressed.connect(func():
-		if current_stage != null:
-			current_stage.toggle_side_frame_pieces("R")
-			stage_settings_changed.emit(current_stage)
-			_update_frame_pieces_display()
-	)
-	p_row.add_child(toggle_r_btn)
-
-	var restore_p_btn := Button.new()
-	restore_p_btn.text = "🔄 Restore"
-	restore_p_btn.tooltip_text = "Restore all hidden/deleted frame pieces"
-	restore_p_btn.pressed.connect(func():
-		if current_stage != null:
-			current_stage.clear_hidden_frame_pieces()
-			stage_settings_changed.emit(current_stage)
-			_update_frame_pieces_display()
-	)
-	p_row.add_child(restore_p_btn)
-	tile_section.add_child(p_row)
-
-	stage_frame_pieces_lbl = Label.new()
-	stage_frame_pieces_lbl.add_theme_font_size_override("font_size", 10)
-	stage_frame_pieces_lbl.modulate = Color(0.6, 0.8, 1.0)
-	stage_frame_pieces_lbl.text = "Tip: Click any border piece on canvas to delete or restore it!"
-	tile_section.add_child(stage_frame_pieces_lbl)
-
-	var b_actions := HBoxContainer.new()
-	var b_match_btn := Button.new()
-	b_match_btn.text = "🔄 Match Grid"
-	b_match_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b_match_btn.pressed.connect(func():
-		if current_stage != null:
-			stage_slice_cols_spin.value = current_stage.grid_width
-			stage_slice_rows_spin.value = current_stage.grid_height
-			_on_stage_board_slice_changed(0)
-	)
-	b_actions.add_child(b_match_btn)
-
-	var b_fill_btn := Button.new()
-	b_fill_btn.text = "⚡ Auto-Fill 1:1"
-	b_fill_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b_fill_btn.pressed.connect(func():
-		if current_stage != null:
-			current_stage.auto_fill_board_tiles()
-			stage_settings_changed.emit(current_stage)
-	)
-	b_actions.add_child(b_fill_btn)
-
-	var b_clr_btn := Button.new()
-	b_clr_btn.text = "❌ Clear Tiles"
-	b_clr_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	b_clr_btn.pressed.connect(func():
-		if current_stage != null:
-			current_stage.clear_all_board_tiles()
-			stage_settings_changed.emit(current_stage)
-			_rebuild_inspector_tile_preview()
-	)
-	b_actions.add_child(b_clr_btn)
-	tile_section.add_child(b_actions)
-
-	stage_tile_borders_chk = CheckBox.new()
-	stage_tile_borders_chk.text = "Show Tile Border Lines"
-	stage_tile_borders_chk.tooltip_text = "Toggle the grid border lines drawn on tiles"
-	stage_tile_borders_chk.button_pressed = true
-	stage_tile_borders_chk.toggled.connect(func(pressed: bool):
-		if current_stage != null:
-			current_stage.show_tile_borders = pressed
-			stage_settings_changed.emit(current_stage)
-	)
-	tile_section.add_child(stage_tile_borders_chk)
-
-	var b_tools := HBoxContainer.new()
 	tile_paint_btn = Button.new()
-	tile_paint_btn.text = "🖌️ Paint Tile"
+	tile_paint_btn.text = "🖌️ Paint Cell"
 	tile_paint_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tile_paint_btn.tooltip_text = "Activate tile paint mode"
-	tile_paint_btn.pressed.connect(func():
-		tile_paint_btn.modulate = Color(0.4, 1.2, 0.5)
-		tile_erase_btn.modulate = Color(1.0, 1.0, 1.0)
-		tile_paint_selected.emit(selected_tile_coord)
-		tile_tool_mode_requested.emit(5)
-	)
-	b_tools.add_child(tile_paint_btn)
+	tile_paint_btn.tooltip_text = "Activate cell paint mode. Click on grid to place selected visual."
+	tile_paint_btn.pressed.connect(_on_paint_tile_pressed)
+	cell_tool_row.add_child(tile_paint_btn)
 
 	tile_erase_btn = Button.new()
-	tile_erase_btn.text = "🧽 Erase Tile"
+	tile_erase_btn.text = "🧽 Erase Cell"
 	tile_erase_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tile_erase_btn.tooltip_text = "Activate tile erase mode"
-	tile_erase_btn.pressed.connect(func():
-		tile_erase_btn.modulate = Color(1.2, 0.4, 0.4)
-		tile_paint_btn.modulate = Color(1.0, 1.0, 1.0)
-		tile_tool_mode_requested.emit(6)
-	)
-	b_tools.add_child(tile_erase_btn)
-	tile_section.add_child(b_tools)
+	tile_erase_btn.tooltip_text = "Activate cell erase mode. Click on grid to remove cell visual."
+	tile_erase_btn.pressed.connect(_on_erase_tile_pressed)
+	cell_tool_row.add_child(tile_erase_btn)
+	tile_section.add_child(cell_tool_row)
 
-	var big_btn_row := HBoxContainer.new()
-	var open_big_btn := Button.new()
-	open_big_btn.text = "🔍 Open Big View"
-	open_big_btn.custom_minimum_size = Vector2(0, 36)
-	open_big_btn.modulate = Color(1.0, 0.9, 0.25)
-	open_big_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	open_big_btn.pressed.connect(_open_big_tile_dialog)
-	big_btn_row.add_child(open_big_btn)
-	tile_section.add_child(big_btn_row)
+	var clr_cells_btn := Button.new()
+	clr_cells_btn.text = "❌ Clear All Cell Visuals"
+	clr_cells_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	clr_cells_btn.tooltip_text = "Clear all placed cell visuals on this stage"
+	clr_cells_btn.pressed.connect(_on_clear_all_tiles_pressed)
+	tile_section.add_child(clr_cells_btn)
 
-	var sz_row := HBoxContainer.new()
-	var sz_lbl := Label.new()
-	sz_lbl.text = "Tile Size:"
-	sz_lbl.add_theme_font_size_override("font_size", 10)
-	sz_row.add_child(sz_lbl)
-	for sz in [36, 54, 72, 96]:
-		var sb := Button.new()
-		sb.text = "%dpx" % sz
-		sb.add_theme_font_size_override("font_size", 10)
-		sb.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		sb.pressed.connect(func():
-			tile_preview_size = sz
-			_rebuild_inspector_tile_preview()
+	# Selected Cell Visual In-Place Editor
+	sel_cell_box = VBoxContainer.new()
+	sel_cell_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_cell_box.add_theme_constant_override("separation", 4)
+	sel_cell_box.visible = false
+
+	var sel_pnl := PanelContainer.new()
+	sel_pnl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sel_inner := VBoxContainer.new()
+	sel_inner.add_theme_constant_override("separation", 4)
+
+	sel_cell_lbl = Label.new()
+	sel_cell_lbl.text = "Selected Cell: (none)"
+	sel_cell_lbl.add_theme_font_size_override("font_size", 11)
+	sel_cell_lbl.modulate = Color(1.0, 0.9, 0.3)
+	sel_inner.add_child(sel_cell_lbl)
+
+	var sel_edit_row := HBoxContainer.new()
+	sel_edit_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var s_a_lbl := Label.new()
+	s_a_lbl.text = "Asset:"
+	s_a_lbl.add_theme_font_size_override("font_size", 10)
+	sel_edit_row.add_child(s_a_lbl)
+
+	sel_cell_asset_opt = OptionButton.new()
+	sel_cell_asset_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_cell_asset_opt.item_selected.connect(_on_sel_cell_asset_changed)
+	sel_edit_row.add_child(sel_cell_asset_opt)
+
+	var s_r_lbl := Label.new()
+	s_r_lbl.text = "Rot:"
+	s_r_lbl.add_theme_font_size_override("font_size", 10)
+	sel_edit_row.add_child(s_r_lbl)
+
+	sel_cell_rot_spin = SpinBox.new()
+	sel_cell_rot_spin.min_value = -360.0
+	sel_cell_rot_spin.max_value = 360.0
+	sel_cell_rot_spin.step = 0.1
+	sel_cell_rot_spin.suffix = "°"
+	sel_cell_rot_spin.custom_minimum_size = Vector2(70, 0)
+	sel_cell_rot_spin.value_changed.connect(_on_sel_cell_rot_changed)
+	sel_edit_row.add_child(sel_cell_rot_spin)
+
+	sel_inner.add_child(sel_edit_row)
+
+	var sel_del_btn := Button.new()
+	sel_del_btn.text = "🧽 Remove From This Cell"
+	sel_del_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_del_btn.pressed.connect(_on_sel_cell_remove_pressed)
+	sel_inner.add_child(sel_del_btn)
+
+	sel_pnl.add_child(sel_inner)
+	sel_cell_box.add_child(sel_pnl)
+	tile_section.add_child(sel_cell_box)
+
+	tile_status_lbl = Label.new()
+	tile_status_lbl.add_theme_font_size_override("font_size", 11)
+	tile_status_lbl.modulate = Color(0.85, 0.9, 0.95)
+	tile_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tile_section.add_child(tile_status_lbl)
+
+	tile_section.add_child(HSeparator.new())
+
+	# =========================================================================
+	# 2. BORDER IMAGES & PAINTING
+	# =========================================================================
+	var border_hdr := Label.new()
+	border_hdr.text = "🛡️ BORDER IMAGES"
+	border_hdr.add_theme_font_size_override("font_size", 12)
+	border_hdr.modulate = Color(0.4, 0.85, 1.0)
+	tile_section.add_child(border_hdr)
+
+	border_assets_container = VBoxContainer.new()
+	border_assets_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	border_assets_container.add_theme_constant_override("separation", 4)
+	tile_section.add_child(border_assets_container)
+
+	var add_border_btn := Button.new()
+	add_border_btn.text = "➕ Add Border Image"
+	add_border_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	add_border_btn.pressed.connect(func():
+		_browse_file("add_border", func(p: String):
+			if current_stage != null:
+				var new_id = current_stage.add_border_asset(p)
+				_select_border_asset(new_id)
+				stage_settings_changed.emit(current_stage)
+				_refresh_tiles_ui()
 		)
-		sz_row.add_child(sb)
-	tile_section.add_child(sz_row)
+	)
+	tile_section.add_child(add_border_btn)
 
-	tile_preview_scroll = ScrollContainer.new()
-	tile_preview_scroll.custom_minimum_size = Vector2(0, 240)
-	tile_preview_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tile_preview_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	tile_section.add_child(tile_preview_scroll)
+	var act_border_lbl := Label.new()
+	act_border_lbl.text = "Active Paint Border:"
+	act_border_lbl.add_theme_font_size_override("font_size", 11)
+	act_border_lbl.modulate = Color(0.8, 0.9, 1.0)
+	tile_section.add_child(act_border_lbl)
 
-	tile_grid_container = GridContainer.new()
-	tile_grid_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	tile_grid_container.add_theme_constant_override("h_separation", 4)
-	tile_grid_container.add_theme_constant_override("v_separation", 4)
-	tile_preview_scroll.add_child(tile_grid_container)
+	active_border_opt = OptionButton.new()
+	active_border_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	active_border_opt.item_selected.connect(_on_active_border_opt_changed)
+	tile_section.add_child(active_border_opt)
+
+	var b_rot_hdr := Label.new()
+	b_rot_hdr.text = "Active Paint Rotation:"
+	b_rot_hdr.add_theme_font_size_override("font_size", 11)
+	b_rot_hdr.modulate = Color(0.8, 0.9, 1.0)
+	tile_section.add_child(b_rot_hdr)
+
+	var border_rot_row := HBoxContainer.new()
+	border_rot_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	border_rot_row.add_theme_constant_override("separation", 4)
+
+	active_border_rot_spin = SpinBox.new()
+	active_border_rot_spin.min_value = -360.0
+	active_border_rot_spin.max_value = 360.0
+	active_border_rot_spin.step = 0.1
+	active_border_rot_spin.value = 0.0
+	active_border_rot_spin.suffix = "°"
+	active_border_rot_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	active_border_rot_spin.value_changed.connect(_on_border_rot_changed)
+	border_rot_row.add_child(active_border_rot_spin)
+
+	border_rot_buttons.clear()
+	for deg in [0, 90, 180, 270]:
+		var r_btn := Button.new()
+		r_btn.text = "%d°" % deg
+		r_btn.custom_minimum_size = Vector2(34, 0)
+		r_btn.pressed.connect(func():
+			_select_border_rot(deg)
+		)
+		border_rot_row.add_child(r_btn)
+		border_rot_buttons[deg] = r_btn
+	tile_section.add_child(border_rot_row)
+
+	var border_tool_row := HBoxContainer.new()
+	border_tool_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	border_tool_row.add_theme_constant_override("separation", 4)
+
+	border_paint_btn = Button.new()
+	border_paint_btn.text = "🛡️ Paint Border"
+	border_paint_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	border_paint_btn.tooltip_text = "Activate border paint mode. Click on cell edges to place selected border visual."
+	border_paint_btn.pressed.connect(_on_paint_border_pressed)
+	border_tool_row.add_child(border_paint_btn)
+
+	border_erase_btn = Button.new()
+	border_erase_btn.text = "🧽 Erase Border"
+	border_erase_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	border_erase_btn.tooltip_text = "Activate border erase mode. Click on cell edges to remove border."
+	border_erase_btn.pressed.connect(_on_erase_border_pressed)
+	border_tool_row.add_child(border_erase_btn)
+	tile_section.add_child(border_tool_row)
+
+	var clr_borders_btn := Button.new()
+	clr_borders_btn.text = "❌ Clear All Borders"
+	clr_borders_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	clr_borders_btn.tooltip_text = "Clear all placed borders on this stage"
+	clr_borders_btn.pressed.connect(_on_clear_all_borders_pressed)
+	tile_section.add_child(clr_borders_btn)
+
+	# Selected Border Visual In-Place Editor
+	sel_border_box = VBoxContainer.new()
+	sel_border_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_border_box.add_theme_constant_override("separation", 4)
+	sel_border_box.visible = false
+
+	var sel_b_pnl := PanelContainer.new()
+	sel_b_pnl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sel_b_inner := VBoxContainer.new()
+	sel_b_inner.add_theme_constant_override("separation", 4)
+
+	sel_border_lbl = Label.new()
+	sel_border_lbl.text = "Selected Border: (none)"
+	sel_border_lbl.add_theme_font_size_override("font_size", 11)
+	sel_border_lbl.modulate = Color(0.4, 0.9, 1.0)
+	sel_b_inner.add_child(sel_border_lbl)
+
+	var sel_b_edit_row := HBoxContainer.new()
+	sel_b_edit_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var sb_a_lbl := Label.new()
+	sb_a_lbl.text = "Asset:"
+	sb_a_lbl.add_theme_font_size_override("font_size", 10)
+	sel_b_edit_row.add_child(sb_a_lbl)
+
+	sel_border_asset_opt = OptionButton.new()
+	sel_border_asset_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_border_asset_opt.item_selected.connect(_on_sel_border_asset_changed)
+	sel_b_edit_row.add_child(sel_border_asset_opt)
+
+	var sb_r_lbl := Label.new()
+	sb_r_lbl.text = "Rot:"
+	sb_r_lbl.add_theme_font_size_override("font_size", 10)
+	sel_b_edit_row.add_child(sb_r_lbl)
+
+	sel_border_rot_spin = SpinBox.new()
+	sel_border_rot_spin.min_value = -360.0
+	sel_border_rot_spin.max_value = 360.0
+	sel_border_rot_spin.step = 0.1
+	sel_border_rot_spin.suffix = "°"
+	sel_border_rot_spin.custom_minimum_size = Vector2(70, 0)
+	sel_border_rot_spin.value_changed.connect(_on_sel_border_rot_changed)
+	sel_b_edit_row.add_child(sel_border_rot_spin)
+
+	sel_b_inner.add_child(sel_b_edit_row)
+
+	var sel_b_del_btn := Button.new()
+	sel_b_del_btn.text = "🧽 Remove From This Border"
+	sel_b_del_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_b_del_btn.pressed.connect(_on_sel_border_remove_pressed)
+	sel_b_inner.add_child(sel_b_del_btn)
+
+	sel_b_pnl.add_child(sel_b_inner)
+	sel_border_box.add_child(sel_b_pnl)
+	tile_section.add_child(sel_border_box)
+
+	border_status_lbl = Label.new()
+	border_status_lbl.add_theme_font_size_override("font_size", 11)
+	border_status_lbl.modulate = Color(0.85, 0.9, 0.95)
+	border_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tile_section.add_child(border_status_lbl)
+
+	tile_section.add_child(HSeparator.new())
+
+	# =========================================================================
+	# 3. CORNER IMAGES & PAINTING
+	# =========================================================================
+	var corner_hdr := Label.new()
+	corner_hdr.text = "📐 CORNER IMAGES"
+	corner_hdr.add_theme_font_size_override("font_size", 12)
+	corner_hdr.modulate = Color(0.9, 0.55, 1.0)
+	tile_section.add_child(corner_hdr)
+
+	corner_assets_container = VBoxContainer.new()
+	corner_assets_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	corner_assets_container.add_theme_constant_override("separation", 4)
+	tile_section.add_child(corner_assets_container)
+
+	var add_corner_btn := Button.new()
+	add_corner_btn.text = "➕ Add Corner Image"
+	add_corner_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	add_corner_btn.pressed.connect(func():
+		_browse_file("add_corner", func(p: String):
+			if current_stage != null:
+				var new_id = current_stage.add_corner_asset(p)
+				_select_corner_asset(new_id)
+				stage_settings_changed.emit(current_stage)
+				_refresh_tiles_ui()
+		)
+	)
+	tile_section.add_child(add_corner_btn)
+
+	var act_corner_lbl := Label.new()
+	act_corner_lbl.text = "Active Paint Corner:"
+	act_corner_lbl.add_theme_font_size_override("font_size", 11)
+	act_corner_lbl.modulate = Color(0.8, 0.9, 1.0)
+	tile_section.add_child(act_corner_lbl)
+
+	active_corner_opt = OptionButton.new()
+	active_corner_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	active_corner_opt.item_selected.connect(_on_active_corner_opt_changed)
+	tile_section.add_child(active_corner_opt)
+
+	var c_rot_hdr := Label.new()
+	c_rot_hdr.text = "Active Paint Rotation:"
+	c_rot_hdr.add_theme_font_size_override("font_size", 11)
+	c_rot_hdr.modulate = Color(0.8, 0.9, 1.0)
+	tile_section.add_child(c_rot_hdr)
+
+	var corner_rot_row := HBoxContainer.new()
+	corner_rot_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	corner_rot_row.add_theme_constant_override("separation", 4)
+
+	active_corner_rot_spin = SpinBox.new()
+	active_corner_rot_spin.min_value = -360.0
+	active_corner_rot_spin.max_value = 360.0
+	active_corner_rot_spin.step = 0.1
+	active_corner_rot_spin.value = 0.0
+	active_corner_rot_spin.suffix = "°"
+	active_corner_rot_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	active_corner_rot_spin.value_changed.connect(_on_corner_rot_changed)
+	corner_rot_row.add_child(active_corner_rot_spin)
+
+	corner_rot_buttons.clear()
+	for deg in [0, 90, 180, 270]:
+		var r_btn := Button.new()
+		r_btn.text = "%d°" % deg
+		r_btn.custom_minimum_size = Vector2(34, 0)
+		r_btn.pressed.connect(func():
+			_select_corner_rot(deg)
+		)
+		corner_rot_row.add_child(r_btn)
+		corner_rot_buttons[deg] = r_btn
+	tile_section.add_child(corner_rot_row)
+
+	var corner_mirror_row := HBoxContainer.new()
+	corner_mirror_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	corner_mirror_row.add_theme_constant_override("separation", 12)
+
+	active_corner_mx_chk = CheckBox.new()
+	active_corner_mx_chk.text = "Mirror X"
+	active_corner_mx_chk.add_theme_font_size_override("font_size", 10)
+	active_corner_mx_chk.toggled.connect(_on_corner_mirror_toggled)
+	corner_mirror_row.add_child(active_corner_mx_chk)
+
+	active_corner_my_chk = CheckBox.new()
+	active_corner_my_chk.text = "Mirror Y"
+	active_corner_my_chk.add_theme_font_size_override("font_size", 10)
+	active_corner_my_chk.toggled.connect(_on_corner_mirror_toggled)
+	corner_mirror_row.add_child(active_corner_my_chk)
+	tile_section.add_child(corner_mirror_row)
+
+	var corner_tool_row := HBoxContainer.new()
+	corner_tool_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	corner_tool_row.add_theme_constant_override("separation", 4)
+
+	corner_paint_btn = Button.new()
+	corner_paint_btn.text = "📐 Paint Corner"
+	corner_paint_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	corner_paint_btn.tooltip_text = "Activate corner paint mode. Click on grid intersections to place selected corner visual."
+	corner_paint_btn.pressed.connect(_on_paint_corner_pressed)
+	corner_tool_row.add_child(corner_paint_btn)
+
+	corner_erase_btn = Button.new()
+	corner_erase_btn.text = "🧽 Erase Corner"
+	corner_erase_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	corner_erase_btn.tooltip_text = "Activate corner erase mode. Click on grid intersections to remove corner."
+	corner_erase_btn.pressed.connect(_on_erase_corner_pressed)
+	corner_tool_row.add_child(corner_erase_btn)
+	tile_section.add_child(corner_tool_row)
+
+	var clr_corners_btn := Button.new()
+	clr_corners_btn.text = "❌ Clear All Corners"
+	clr_corners_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	clr_corners_btn.tooltip_text = "Clear all placed corners on this stage"
+	clr_corners_btn.pressed.connect(_on_clear_all_corners_pressed)
+	tile_section.add_child(clr_corners_btn)
+
+	# Selected Corner Visual In-Place Editor
+	sel_corner_box = VBoxContainer.new()
+	sel_corner_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_corner_box.add_theme_constant_override("separation", 4)
+	sel_corner_box.visible = false
+
+	var sel_c_pnl := PanelContainer.new()
+	sel_c_pnl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sel_c_inner := VBoxContainer.new()
+	sel_c_inner.add_theme_constant_override("separation", 4)
+
+	sel_corner_lbl = Label.new()
+	sel_corner_lbl.text = "Selected Corner: (none)"
+	sel_corner_lbl.add_theme_font_size_override("font_size", 11)
+	sel_corner_lbl.modulate = Color(0.9, 0.55, 1.0)
+	sel_c_inner.add_child(sel_corner_lbl)
+
+	var sel_c_edit_row := HBoxContainer.new()
+	sel_c_edit_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var sc_a_lbl := Label.new()
+	sc_a_lbl.text = "Asset:"
+	sc_a_lbl.add_theme_font_size_override("font_size", 10)
+	sel_c_edit_row.add_child(sc_a_lbl)
+
+	sel_corner_asset_opt = OptionButton.new()
+	sel_corner_asset_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_corner_asset_opt.item_selected.connect(_on_sel_corner_asset_changed)
+	sel_c_edit_row.add_child(sel_corner_asset_opt)
+
+	var sc_r_lbl := Label.new()
+	sc_r_lbl.text = "Rot:"
+	sc_r_lbl.add_theme_font_size_override("font_size", 10)
+	sel_c_edit_row.add_child(sc_r_lbl)
+
+	sel_corner_rot_spin = SpinBox.new()
+	sel_corner_rot_spin.min_value = -360.0
+	sel_corner_rot_spin.max_value = 360.0
+	sel_corner_rot_spin.step = 0.1
+	sel_corner_rot_spin.suffix = "°"
+	sel_corner_rot_spin.custom_minimum_size = Vector2(70, 0)
+	sel_corner_rot_spin.value_changed.connect(_on_sel_corner_rot_changed)
+	sel_c_edit_row.add_child(sel_corner_rot_spin)
+
+	sel_c_inner.add_child(sel_c_edit_row)
+
+	var sel_c_mirror_row := HBoxContainer.new()
+	sel_c_mirror_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_c_mirror_row.add_theme_constant_override("separation", 12)
+
+	sel_corner_mx_chk = CheckBox.new()
+	sel_corner_mx_chk.text = "Mirror X"
+	sel_corner_mx_chk.add_theme_font_size_override("font_size", 10)
+	sel_corner_mx_chk.toggled.connect(_on_sel_corner_mirror_changed)
+	sel_c_mirror_row.add_child(sel_corner_mx_chk)
+
+	sel_corner_my_chk = CheckBox.new()
+	sel_corner_my_chk.text = "Mirror Y"
+	sel_corner_my_chk.add_theme_font_size_override("font_size", 10)
+	sel_corner_my_chk.toggled.connect(_on_sel_corner_mirror_changed)
+	sel_c_mirror_row.add_child(sel_corner_my_chk)
+	sel_c_inner.add_child(sel_c_mirror_row)
+
+	var sel_c_del_btn := Button.new()
+	sel_c_del_btn.text = "🧽 Remove From This Corner"
+	sel_c_del_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_c_del_btn.pressed.connect(_on_sel_corner_remove_pressed)
+	sel_c_inner.add_child(sel_c_del_btn)
+
+	sel_c_pnl.add_child(sel_c_inner)
+	sel_corner_box.add_child(sel_c_pnl)
+	tile_section.add_child(sel_corner_box)
+
+	corner_status_lbl = Label.new()
+	corner_status_lbl.add_theme_font_size_override("font_size", 11)
+	corner_status_lbl.modulate = Color(0.85, 0.9, 0.95)
+	corner_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	tile_section.add_child(corner_status_lbl)
+
+	_setup_border_file_dialog()
 
 	lvl_section = _create_section(main_vbox, "LEVEL & TIMERS")
 
@@ -807,17 +1086,9 @@ func set_stage(stage: LaserStageData) -> void:
 			if stage_transition_dir_option.get_item_id(i) == td:
 				stage_transition_dir_option.select(i)
 				break
-		if stage_board_img_edit != null:
-			stage_board_img_edit.text = stage.board_image_path
-		if stage_slice_cols_spin != null:
-			stage_slice_cols_spin.set_value_no_signal(stage.get_effective_slice_cols())
-		if stage_slice_rows_spin != null:
-			stage_slice_rows_spin.set_value_no_signal(stage.get_effective_slice_rows())
-		_update_margin_spinboxes()
-		if stage_tile_borders_chk != null:
-			stage_tile_borders_chk.set_pressed_no_signal(stage.show_tile_borders)
-		_update_frame_pieces_display()
-		_rebuild_inspector_tile_preview()
+		if border_enable_chk != null:
+			border_enable_chk.set_pressed_no_signal(stage.border_enabled)
+		_refresh_tiles_ui()
 	if selected_object == null and tab_stage_btn != null and tab_obj_btn != null and tab_obj_btn.button_pressed:
 		_switch_tab(1)
 
@@ -1061,284 +1332,754 @@ func _on_level_data_changed(_v: float) -> void:
 		current_level.coin_reward_1 = int(coin_1_spin.value)
 		level_settings_changed.emit(current_level)
 
-func _on_stage_board_img_changed(txt: String) -> void:
-	if current_stage != null:
-		current_stage.board_image_path = txt.strip_edges()
-		stage_settings_changed.emit(current_stage)
-		_rebuild_inspector_tile_preview()
-
-func _on_stage_board_slice_changed(_v: float = 0) -> void:
-	if current_stage != null:
-		current_stage.board_slice_cols = int(stage_slice_cols_spin.value)
-		current_stage.board_slice_rows = int(stage_slice_rows_spin.value)
-		stage_settings_changed.emit(current_stage)
-		_rebuild_inspector_tile_preview()
-
-func _on_stage_board_margins_changed(_v: float = 0) -> void:
-	if current_stage != null and stage_margin_l_spin != null:
-		current_stage.set_board_margins(
-			int(stage_margin_l_spin.value),
-			int(stage_margin_t_spin.value),
-			int(stage_margin_r_spin.value),
-			int(stage_margin_b_spin.value)
-		)
-		stage_settings_changed.emit(current_stage)
-		_rebuild_inspector_tile_preview()
-		_rebuild_big_dialog_tiles()
-
-func _update_margin_spinboxes() -> void:
-	if current_stage != null:
-		if stage_margin_l_spin != null:
-			stage_margin_l_spin.set_value_no_signal(current_stage.board_margin_left)
-		if stage_margin_t_spin != null:
-			stage_margin_t_spin.set_value_no_signal(current_stage.board_margin_top)
-		if stage_margin_r_spin != null:
-			stage_margin_r_spin.set_value_no_signal(current_stage.board_margin_right)
-		if stage_margin_b_spin != null:
-			stage_margin_b_spin.set_value_no_signal(current_stage.board_margin_bottom)
-
-func _update_frame_pieces_display() -> void:
-	if stage_frame_pieces_lbl == null:
+func _refresh_tiles_ui() -> void:
+	if current_stage == null:
 		return
-	if current_stage == null or current_stage.hidden_frame_pieces.is_empty():
-		stage_frame_pieces_lbl.text = "Tip: Click any border piece on canvas to delete or restore it!"
-		stage_frame_pieces_lbl.modulate = Color(0.6, 0.8, 1.0)
-	else:
-		var preview_keys = current_stage.hidden_frame_pieces.slice(0, 4)
-		var joined = ", ".join(preview_keys)
-		if current_stage.hidden_frame_pieces.size() > 4:
-			joined += "..."
-		stage_frame_pieces_lbl.text = "Deleted Pieces: %d (%s) • Click canvas piece to toggle" % [
-			current_stage.hidden_frame_pieces.size(),
-			joined
-		]
-		stage_frame_pieces_lbl.modulate = Color(1.0, 0.7, 0.3)
+	current_stage.ensure_default_visual_libraries()
 
-func _on_autodetect_margins_pressed() -> void:
-	if current_stage == null or current_stage.board_image_path.is_empty():
-		return
-	var tex := BoardLayoutManager.get_board_texture(current_stage.board_image_path)
-	if tex == null:
-		return
-	var det := BoardLayoutManager.auto_detect_board_margins(tex)
-	if det != Vector4i.ZERO:
-		current_stage.set_board_margins(det.x, det.y, det.z, det.w)
-		_update_margin_spinboxes()
-		stage_settings_changed.emit(current_stage)
-		_rebuild_inspector_tile_preview()
-		_rebuild_big_dialog_tiles()
+	# 1. Refresh Cell Assets
+	if cell_assets_container != null:
+		for c in cell_assets_container.get_children():
+			c.queue_free()
+		cell_asset_buttons.clear()
 
-func _rebuild_inspector_tile_preview() -> void:
-	if tile_grid_container == null:
-		return
-	for c in tile_grid_container.get_children():
-		c.queue_free()
-	tile_buttons.clear()
+		for i in range(current_stage.cell_assets.size()):
+			var asset = current_stage.cell_assets[i]
+			var a_id: String = asset.get("id", "cell_%d" % (i + 1))
+			var a_name: String = asset.get("name", a_id)
 
-	if current_stage == null or current_stage.board_image_path.is_empty():
-		if tile_status_lbl != null:
-			tile_status_lbl.text = "No image selected. Enter image path above."
-			tile_status_lbl.modulate = Color(0.6, 0.6, 0.6)
-		return
+			var row := HBoxContainer.new()
+			row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 
-	var tex := BoardLayoutManager.get_board_texture(current_stage.board_image_path)
-	if tex == null:
-		if tile_status_lbl != null:
-			tile_status_lbl.text = "Could not load image at path:\n%s" % current_stage.board_image_path
-			tile_status_lbl.modulate = Color(1.0, 0.4, 0.4)
-		return
-
-	var cols := current_stage.get_effective_slice_cols()
-	var rows := current_stage.get_effective_slice_rows()
-	tile_grid_container.columns = cols
-	if tile_status_lbl != null:
-		tile_status_lbl.text = "Sliced %dx%d (%d tiles). Click tile to select & paint:" % [cols, rows, cols * rows]
-		tile_status_lbl.modulate = Color(0.4, 1.0, 0.5)
-
-	for y in range(rows):
-		for x in range(cols):
 			var btn := Button.new()
-			btn.custom_minimum_size = Vector2(tile_preview_size, tile_preview_size)
-			btn.tooltip_text = "Tile (%d, %d)" % [x, y]
-
-			var atlas := AtlasTexture.new()
-			atlas.atlas = tex
-			atlas.region = BoardLayoutManager.get_tile_src_rect(tex, x, y, cols, rows, current_stage.get_board_margins())
-			btn.icon = atlas
-			btn.expand_icon = true
-
-			var cur_c := Vector2i(x, y)
+			btn.text = "🖼️ " + a_name
+			btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			btn.tooltip_text = asset.get("path", "")
 			btn.pressed.connect(func():
-				selected_tile_coord = cur_c
-				_update_inspector_tile_highlights()
-				_update_big_dialog_highlights()
-				if tile_status_lbl != null:
-					tile_status_lbl.text = "Selected Tile (%d, %d) • Click stage grid cells to place!" % [cur_c.x, cur_c.y]
-					tile_status_lbl.modulate = Color(1.0, 0.9, 0.2)
-				tile_paint_selected.emit(cur_c)
-				tile_tool_mode_requested.emit(5)
+				_select_cell_asset(a_id)
 			)
+			row.add_child(btn)
+			cell_asset_buttons[a_id] = btn
 
-			tile_grid_container.add_child(btn)
-			tile_buttons[cur_c] = btn
+			var change_btn := Button.new()
+			change_btn.text = "📁"
+			change_btn.tooltip_text = "Select/Change Image File for %s" % a_name
+			change_btn.pressed.connect(func():
+				_browse_file("edit_cell_" + a_id, func(p: String):
+					current_stage.update_cell_asset(a_id, p)
+					BoardVisualGenerator.clear_texture_cache()
+					stage_settings_changed.emit(current_stage)
+					_refresh_tiles_ui()
+				)
+			)
+			row.add_child(change_btn)
 
-	_update_inspector_tile_highlights()
+			if current_stage.cell_assets.size() > 1:
+				var del_btn := Button.new()
+				del_btn.text = "❌"
+				del_btn.tooltip_text = "Remove %s" % a_name
+				del_btn.pressed.connect(func():
+					current_stage.remove_cell_asset(a_id)
+					if active_cell_asset == a_id:
+						if not current_stage.cell_assets.is_empty():
+							_select_cell_asset(current_stage.cell_assets[0].get("id", "cell_1"))
+					BoardVisualGenerator.clear_texture_cache()
+					stage_settings_changed.emit(current_stage)
+					_refresh_tiles_ui()
+				)
+				row.add_child(del_btn)
 
-func _update_inspector_tile_highlights() -> void:
-	for c in tile_buttons.keys():
-		var btn: Button = tile_buttons[c]
+			cell_assets_container.add_child(row)
+
+	# Populate active_cell_opt
+	if active_cell_opt != null:
+		var prev_cell_id = active_cell_asset
+		active_cell_opt.clear()
+		var sel_idx := 0
+		for i in range(current_stage.cell_assets.size()):
+			var a = current_stage.cell_assets[i]
+			var a_id: String = a.get("id", "cell_%d" % (i + 1))
+			var a_name: String = a.get("name", a_id)
+			active_cell_opt.add_item(a_name, i)
+			active_cell_opt.set_item_metadata(i, a_id)
+			if a_id == prev_cell_id:
+				sel_idx = i
+		if active_cell_opt.item_count > 0:
+			active_cell_opt.select(sel_idx)
+
+	# 2. Refresh Border Assets
+	if border_assets_container != null:
+		for c in border_assets_container.get_children():
+			c.queue_free()
+		border_asset_buttons.clear()
+
+		for i in range(current_stage.border_assets.size()):
+			var asset = current_stage.border_assets[i]
+			var a_id: String = asset.get("id", "border_%d" % (i + 1))
+			var a_name: String = asset.get("name", a_id)
+
+			var row := HBoxContainer.new()
+			row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+			var btn := Button.new()
+			btn.text = "🛡️ " + a_name
+			btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			btn.tooltip_text = asset.get("path", "")
+			btn.pressed.connect(func():
+				_select_border_asset(a_id)
+			)
+			row.add_child(btn)
+			border_asset_buttons[a_id] = btn
+
+			var change_b_btn := Button.new()
+			change_b_btn.text = "📁"
+			change_b_btn.tooltip_text = "Select/Change Border Image File for %s" % a_name
+			change_b_btn.pressed.connect(func():
+				_browse_file("edit_border_" + a_id, func(p: String):
+					current_stage.update_border_asset(a_id, p)
+					BoardVisualGenerator.clear_texture_cache()
+					stage_settings_changed.emit(current_stage)
+					_refresh_tiles_ui()
+				)
+			)
+			row.add_child(change_b_btn)
+
+			if current_stage.border_assets.size() > 1:
+				var del_btn := Button.new()
+				del_btn.text = "❌"
+				del_btn.tooltip_text = "Remove %s" % a_name
+				del_btn.pressed.connect(func():
+					current_stage.remove_border_asset(a_id)
+					if active_border_asset == a_id:
+						if not current_stage.border_assets.is_empty():
+							_select_border_asset(current_stage.border_assets[0].get("id", "border_1"))
+					BoardVisualGenerator.clear_texture_cache()
+					stage_settings_changed.emit(current_stage)
+					_refresh_tiles_ui()
+				)
+				row.add_child(del_btn)
+
+			border_assets_container.add_child(row)
+
+	# Populate active_border_opt
+	if active_border_opt != null:
+		var prev_border_id = active_border_asset
+		active_border_opt.clear()
+		var sel_b_idx := 0
+		for i in range(current_stage.border_assets.size()):
+			var a = current_stage.border_assets[i]
+			var a_id: String = a.get("id", "border_%d" % (i + 1))
+			var a_name: String = a.get("name", a_id)
+			active_border_opt.add_item(a_name, i)
+			active_border_opt.set_item_metadata(i, a_id)
+			if a_id == prev_border_id:
+				sel_b_idx = i
+		if active_border_opt.item_count > 0:
+			active_border_opt.select(sel_b_idx)
+
+	# 3. Refresh Corner Assets
+	if corner_assets_container != null:
+		for c in corner_assets_container.get_children():
+			c.queue_free()
+		corner_asset_buttons.clear()
+
+		for i in range(current_stage.corner_assets.size()):
+			var asset = current_stage.corner_assets[i]
+			var a_id: String = asset.get("id", "corner_%d" % (i + 1))
+			var a_name: String = asset.get("name", a_id)
+
+			var row := HBoxContainer.new()
+			row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+			var btn := Button.new()
+			btn.text = "📐 " + a_name
+			btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			btn.tooltip_text = asset.get("path", "")
+			btn.pressed.connect(func():
+				_select_corner_asset(a_id)
+			)
+			row.add_child(btn)
+			corner_asset_buttons[a_id] = btn
+
+			var change_c_btn := Button.new()
+			change_c_btn.text = "📁"
+			change_c_btn.tooltip_text = "Select/Change Corner Image File for %s" % a_name
+			change_c_btn.pressed.connect(func():
+				_browse_file("edit_corner_" + a_id, func(p: String):
+					current_stage.update_corner_asset(a_id, p)
+					BoardVisualGenerator.clear_texture_cache()
+					stage_settings_changed.emit(current_stage)
+					_refresh_tiles_ui()
+				)
+			)
+			row.add_child(change_c_btn)
+
+			if current_stage.corner_assets.size() > 1:
+				var del_btn := Button.new()
+				del_btn.text = "❌"
+				del_btn.tooltip_text = "Remove %s" % a_name
+				del_btn.pressed.connect(func():
+					current_stage.remove_corner_asset(a_id)
+					if active_corner_asset == a_id:
+						if not current_stage.corner_assets.is_empty():
+							_select_corner_asset(current_stage.corner_assets[0].get("id", "corner_1"))
+					BoardVisualGenerator.clear_texture_cache()
+					stage_settings_changed.emit(current_stage)
+					_refresh_tiles_ui()
+				)
+				row.add_child(del_btn)
+
+			corner_assets_container.add_child(row)
+
+	# Populate active_corner_opt
+	if active_corner_opt != null:
+		var prev_corner_id = active_corner_asset
+		active_corner_opt.clear()
+		var sel_c_idx := 0
+		for i in range(current_stage.corner_assets.size()):
+			var a = current_stage.corner_assets[i]
+			var a_id: String = a.get("id", "corner_%d" % (i + 1))
+			var a_name: String = a.get("name", a_id)
+			active_corner_opt.add_item(a_name, i)
+			active_corner_opt.set_item_metadata(i, a_id)
+			if a_id == prev_corner_id:
+				sel_c_idx = i
+		if active_corner_opt.item_count > 0:
+			active_corner_opt.select(sel_c_idx)
+
+	# Sync in-place selection options
+	_sync_inplace_options()
+
+	_update_cell_visual_highlights()
+	_update_border_visual_highlights()
+	_update_corner_visual_highlights()
+	_update_tile_rot_highlights()
+	_update_border_rot_highlights()
+	_update_corner_rot_highlights()
+	_update_tile_status()
+	_update_border_status()
+	_update_corner_status()
+
+func _sync_inplace_options() -> void:
+	if current_stage == null:
+		return
+	if sel_cell_asset_opt != null:
+		var prev_txt = sel_cell_asset_opt.text
+		sel_cell_asset_opt.clear()
+		for a in current_stage.cell_assets:
+			sel_cell_asset_opt.add_item(str(a.get("id", "")))
+		for i in range(sel_cell_asset_opt.item_count):
+			if sel_cell_asset_opt.get_item_text(i) == prev_txt:
+				sel_cell_asset_opt.select(i)
+				break
+
+	if sel_border_asset_opt != null:
+		var prev_b_txt = sel_border_asset_opt.text
+		sel_border_asset_opt.clear()
+		for a in current_stage.border_assets:
+			sel_border_asset_opt.add_item(str(a.get("id", "")))
+		for i in range(sel_border_asset_opt.item_count):
+			if sel_border_asset_opt.get_item_text(i) == prev_b_txt:
+				sel_border_asset_opt.select(i)
+				break
+
+	if sel_corner_asset_opt != null:
+		var prev_c_txt = sel_corner_asset_opt.text
+		sel_corner_asset_opt.clear()
+		for a in current_stage.corner_assets:
+			sel_corner_asset_opt.add_item(str(a.get("id", "")))
+		for i in range(sel_corner_asset_opt.item_count):
+			if sel_corner_asset_opt.get_item_text(i) == prev_c_txt:
+				sel_corner_asset_opt.select(i)
+				break
+
+var _file_dialog_callback: Callable = Callable()
+
+func _setup_border_file_dialog() -> void:
+	if border_file_dialog != null:
+		return
+	border_file_dialog = FileDialog.new()
+	border_file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	border_file_dialog.access = FileDialog.ACCESS_RESOURCES
+	border_file_dialog.filters = PackedStringArray(["*.png, *.jpg, *.jpeg, *.webp, *.svg ; Image Files", "* ; All Files"])
+	border_file_dialog.file_selected.connect(func(path: String):
+		if _file_dialog_callback.is_valid():
+			_file_dialog_callback.call(path)
+	)
+	add_child(border_file_dialog)
+
+func _browse_file(target_prop: String, on_selected: Callable = Callable()) -> void:
+	border_file_target_prop = target_prop
+	_file_dialog_callback = on_selected
+	if border_file_dialog != null:
+		if border_file_dialog.is_inside_tree():
+			border_file_dialog.popup_centered_ratio(0.7)
+		else:
+			border_file_dialog.visible = true
+
+# =========================================================================
+# CELL VISUAL HANDLERS
+# =========================================================================
+func _select_cell_asset(asset_key: String) -> void:
+	active_cell_asset = asset_key
+	if active_cell_opt != null and current_stage != null:
+		for i in range(active_cell_opt.item_count):
+			if str(active_cell_opt.get_item_metadata(i)) == asset_key:
+				active_cell_opt.select(i)
+				break
+	_update_cell_visual_highlights()
+	_update_tile_status()
+	cell_visual_paint_selected.emit(active_cell_asset, active_cell_rot)
+	tile_paint_selected.emit(Vector2i(selected_tile_type, int(round(active_cell_rot))))
+	tile_tool_mode_requested.emit(5)
+
+func _on_active_cell_opt_changed(idx: int) -> void:
+	if active_cell_opt == null:
+		return
+	var a_id = str(active_cell_opt.get_item_metadata(idx)) if idx >= 0 else active_cell_opt.get_item_text(idx)
+	if not a_id.is_empty():
+		_select_cell_asset(a_id)
+
+func _on_cell_rot_changed(new_rot: float) -> void:
+	active_cell_rot = new_rot
+	selected_tile_rot = int(round(new_rot))
+	_update_tile_rot_highlights()
+	_update_tile_status()
+	cell_visual_paint_selected.emit(active_cell_asset, active_cell_rot)
+	tile_paint_selected.emit(Vector2i(selected_tile_type, selected_tile_rot))
+
+func _select_tile_rot(rot_deg: int) -> void:
+	selected_tile_rot = rot_deg
+	active_cell_rot = float(rot_deg)
+	if cell_rot_spin != null:
+		cell_rot_spin.set_value_no_signal(active_cell_rot)
+	selected_tile_coord = Vector2i(selected_tile_type, selected_tile_rot)
+	_update_tile_rot_highlights()
+	_update_tile_status()
+	cell_visual_paint_selected.emit(active_cell_asset, active_cell_rot)
+	tile_paint_selected.emit(selected_tile_coord)
+	tile_tool_mode_requested.emit(5)
+
+func _update_cell_visual_highlights() -> void:
+	for k in cell_asset_buttons.keys():
+		var btn: Button = cell_asset_buttons[k]
 		if is_instance_valid(btn):
-			if c == selected_tile_coord:
+			if k == active_cell_asset:
 				btn.modulate = Color(1.6, 1.5, 0.3)
 			else:
 				btn.modulate = Color(1.0, 1.0, 1.0)
 
-func _open_big_tile_dialog() -> void:
-	if big_tile_dialog == null:
-		_setup_big_tile_dialog()
-	_rebuild_big_dialog_tiles()
-	if big_tile_dialog.is_inside_tree():
-		big_tile_dialog.popup_centered(Vector2(700, 560))
-	else:
-		big_tile_dialog.visible = true
-
-func _setup_big_tile_dialog() -> void:
-	big_tile_dialog = AcceptDialog.new()
-	big_tile_dialog.title = "🧩 Sliced Tilemap Studio - Big View"
-	big_tile_dialog.ok_button_text = "Close"
-
-	var d_vbox := VBoxContainer.new()
-	d_vbox.set_anchors_preset(Control.PRESET_FULL_RECT)
-	d_vbox.add_theme_constant_override("separation", 8)
-
-	big_dialog_status = Label.new()
-	big_dialog_status.text = "Click any tile piece below to select, then click stage grid cells to place:"
-	big_dialog_status.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	big_dialog_status.add_theme_font_size_override("font_size", 13)
-	big_dialog_status.modulate = Color(1.0, 0.9, 0.3)
-	d_vbox.add_child(big_dialog_status)
-
-	var d_actions := HBoxContainer.new()
-	d_actions.alignment = BoxContainer.ALIGNMENT_CENTER
-	d_actions.add_theme_constant_override("separation", 8)
-
-	var d_paint := Button.new()
-	d_paint.text = "🖌️ Paint Mode"
-	d_paint.pressed.connect(func():
-		tile_paint_selected.emit(selected_tile_coord)
-		tile_tool_mode_requested.emit(5)
-		big_dialog_status.text = "Tile (%d, %d) selected! Click stage grid cells to place." % [selected_tile_coord.x, selected_tile_coord.y]
-	)
-	d_actions.add_child(d_paint)
-
-	var d_erase := Button.new()
-	d_erase.text = "🧽 Erase Mode"
-	d_erase.pressed.connect(func():
-		tile_tool_mode_requested.emit(6)
-		big_dialog_status.text = "Erase Mode active! Click stage grid cells to remove tiles."
-	)
-	d_actions.add_child(d_erase)
-
-	var af_btn := Button.new()
-	af_btn.text = "⚡ Auto-Fill 1:1"
-	af_btn.pressed.connect(func():
-		if current_stage != null:
-			current_stage.auto_fill_board_tiles()
-			stage_settings_changed.emit(current_stage)
-			_rebuild_inspector_tile_preview()
-			_rebuild_big_dialog_tiles()
-	)
-	d_actions.add_child(af_btn)
-
-	var clr_btn := Button.new()
-	clr_btn.text = "❌ Clear Tiles"
-	clr_btn.pressed.connect(func():
-		if current_stage != null:
-			current_stage.clear_all_board_tiles()
-			stage_settings_changed.emit(current_stage)
-			_rebuild_inspector_tile_preview()
-			_rebuild_big_dialog_tiles()
-	)
-	d_actions.add_child(clr_btn)
-	d_vbox.add_child(d_actions)
-
-	var d_scroll := ScrollContainer.new()
-	d_scroll.custom_minimum_size = Vector2(660, 420)
-	d_scroll.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	d_scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	d_vbox.add_child(d_scroll)
-
-	var center_box := CenterContainer.new()
-	center_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	center_box.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	d_scroll.add_child(center_box)
-
-	big_dialog_grid = GridContainer.new()
-	big_dialog_grid.add_theme_constant_override("h_separation", 8)
-	big_dialog_grid.add_theme_constant_override("v_separation", 8)
-	center_box.add_child(big_dialog_grid)
-
-	big_tile_dialog.add_child(d_vbox)
-	add_child(big_tile_dialog)
-
-func _rebuild_big_dialog_tiles() -> void:
-	if big_dialog_grid == null:
-		return
-	for c in big_dialog_grid.get_children():
-		c.queue_free()
-	big_dialog_buttons.clear()
-
-	if current_stage == null or current_stage.board_image_path.is_empty():
-		big_dialog_status.text = "No image loaded. Please set board image path first."
-		return
-
-	var tex := BoardLayoutManager.get_board_texture(current_stage.board_image_path)
-	if tex == null:
-		big_dialog_status.text = "Could not load image at path: %s" % current_stage.board_image_path
-		return
-
-	var cols := current_stage.get_effective_slice_cols()
-	var rows := current_stage.get_effective_slice_rows()
-	big_dialog_grid.columns = cols
-	big_dialog_status.text = "Sliced %dx%d (%d tiles) • Click any piece to select & paint:" % [cols, rows, cols * rows]
-
-	var big_size := 76.0
-
-	for y in range(rows):
-		for x in range(cols):
-			var btn := Button.new()
-			btn.custom_minimum_size = Vector2(big_size, big_size)
-			btn.tooltip_text = "Tile (%d, %d)" % [x, y]
-
-			var atlas := AtlasTexture.new()
-			atlas.atlas = tex
-			atlas.region = BoardLayoutManager.get_tile_src_rect(tex, x, y, cols, rows, current_stage.get_board_margins())
-			btn.icon = atlas
-			btn.expand_icon = true
-
-			var cur_c := Vector2i(x, y)
-			btn.pressed.connect(func():
-				selected_tile_coord = cur_c
-				_update_inspector_tile_highlights()
-				_update_big_dialog_highlights()
-				big_dialog_status.text = "Selected Tile (%d, %d) • Click stage grid cells to place!" % [cur_c.x, cur_c.y]
-				tile_paint_selected.emit(cur_c)
-				tile_tool_mode_requested.emit(5)
-			)
-
-			big_dialog_grid.add_child(btn)
-			big_dialog_buttons[cur_c] = btn
-
-	_update_big_dialog_highlights()
-
-func _update_big_dialog_highlights() -> void:
-	for c in big_dialog_buttons.keys():
-		var btn: Button = big_dialog_buttons[c]
+func _update_tile_rot_highlights() -> void:
+	for r in tile_rot_buttons.keys():
+		var btn: Button = tile_rot_buttons[r]
 		if is_instance_valid(btn):
-			if c == selected_tile_coord:
-				btn.modulate = Color(1.8, 1.6, 0.2)
+			if r == int(round(active_cell_rot)):
+				btn.modulate = Color(1.6, 1.5, 0.3)
 			else:
 				btn.modulate = Color(1.0, 1.0, 1.0)
 
+func _update_tile_status() -> void:
+	if tile_status_lbl == null:
+		return
+	var count := 0
+	if current_stage != null:
+		count = current_stage.get_cell_visuals_count()
+	tile_status_lbl.text = "Active Cell: %s (%.0f°)\nPlaced Cells: %d\nClick stage cell to paint or edit." % [active_cell_asset, active_cell_rot, count]
 
+func _on_paint_tile_pressed() -> void:
+	selected_tile_coord = Vector2i(selected_tile_type, int(round(active_cell_rot)))
+	cell_visual_paint_selected.emit(active_cell_asset, active_cell_rot)
+	tile_paint_selected.emit(selected_tile_coord)
+	tile_tool_mode_requested.emit(5)
+	_update_tile_status()
+
+func _on_erase_tile_pressed() -> void:
+	tile_tool_mode_requested.emit(6)
+	if tile_status_lbl != null:
+		var count := 0
+		if current_stage != null:
+			count = current_stage.get_cell_visuals_count()
+		tile_status_lbl.text = "Erase Cell Mode active!\nPlaced Cells: %d\nClick stage cell to remove visual." % count
+
+func _on_clear_all_tiles_pressed() -> void:
+	if current_stage != null:
+		current_stage.clear_all_cell_visuals()
+		stage_settings_changed.emit(current_stage)
+		_update_tile_status()
+
+func inspect_cell_visual(stage: LaserStageData, cell: Vector2i, visual_data: Dictionary) -> void:
+	current_selected_visual_cell = cell
+	if sel_cell_box == null:
+		return
+	if visual_data.is_empty():
+		sel_cell_box.visible = false
+		return
+	sel_cell_box.visible = true
+	sel_cell_lbl.text = "Selected Cell: (%d, %d)" % [cell.x, cell.y]
+	var cur_asset = str(visual_data.get("asset", ""))
+	var cur_rot = float(visual_data.get("rotation", 0.0))
+
+	sel_cell_asset_opt.clear()
+	var selected_idx := 0
+	if stage != null:
+		stage.ensure_default_visual_libraries()
+		for i in range(stage.cell_assets.size()):
+			var a = stage.cell_assets[i]
+			var aid: String = str(a.get("id", "cell_%d" % (i + 1)))
+			var aname: String = str(a.get("name", aid))
+			sel_cell_asset_opt.add_item(aname)
+			var cur_idx = sel_cell_asset_opt.item_count - 1
+			sel_cell_asset_opt.set_item_metadata(cur_idx, aid)
+			if aid == cur_asset or aname == cur_asset or a.get("path", "") == cur_asset or (cur_asset.is_empty() and i == 0):
+				selected_idx = cur_idx
+
+	for extra in ["Cell_A", "Cell_B", "Cell_C", "Cell_D", cur_asset]:
+		if not extra.is_empty():
+			var found := false
+			for i in range(sel_cell_asset_opt.item_count):
+				if sel_cell_asset_opt.get_item_text(i) == extra or str(sel_cell_asset_opt.get_item_metadata(i)) == extra:
+					found = true
+					break
+			if not found:
+				sel_cell_asset_opt.add_item(extra)
+				var new_idx = sel_cell_asset_opt.item_count - 1
+				sel_cell_asset_opt.set_item_metadata(new_idx, extra)
+				if extra == cur_asset:
+					selected_idx = new_idx
+
+	sel_cell_asset_opt.select(selected_idx)
+	sel_cell_rot_spin.set_value_no_signal(cur_rot)
+
+func _on_sel_cell_rot_changed(new_rot: float) -> void:
+	if current_stage == null or current_selected_visual_cell == Vector2i(-1, -1):
+		return
+	var cur_vis = current_stage.get_cell_visual(current_selected_visual_cell)
+	var cur_asset = str(cur_vis.get("asset", active_cell_asset))
+	current_stage.set_cell_visual(current_selected_visual_cell, cur_asset, new_rot)
+	stage_settings_changed.emit(current_stage)
+	cell_visual_modified.emit(current_stage, current_selected_visual_cell, cur_asset, new_rot)
+
+func _on_sel_cell_asset_changed(idx: int) -> void:
+	if current_stage == null or current_selected_visual_cell == Vector2i(-1, -1):
+		return
+	var chosen_asset = str(sel_cell_asset_opt.get_item_metadata(idx)) if idx >= 0 else sel_cell_asset_opt.get_item_text(idx)
+	var cur_vis = current_stage.get_cell_visual(current_selected_visual_cell)
+	var cur_rot = float(cur_vis.get("rotation", active_cell_rot))
+	current_stage.set_cell_visual(current_selected_visual_cell, chosen_asset, cur_rot)
+	stage_settings_changed.emit(current_stage)
+	cell_visual_modified.emit(current_stage, current_selected_visual_cell, chosen_asset, cur_rot)
+
+func _on_sel_cell_remove_pressed() -> void:
+	if current_stage == null or current_selected_visual_cell == Vector2i(-1, -1):
+		return
+	current_stage.remove_cell_visual(current_selected_visual_cell)
+	sel_cell_box.visible = false
+	current_selected_visual_cell = Vector2i(-1, -1)
+	stage_settings_changed.emit(current_stage)
+	_update_tile_status()
+
+# =========================================================================
+# BORDER VISUAL HANDLERS
+# =========================================================================
+func _select_border_asset(asset_key: String) -> void:
+	active_border_asset = asset_key
+	if active_border_opt != null and current_stage != null:
+		for i in range(active_border_opt.item_count):
+			if str(active_border_opt.get_item_metadata(i)) == asset_key:
+				active_border_opt.select(i)
+				break
+	_update_border_visual_highlights()
+	_update_border_status()
+	border_visual_paint_selected.emit(active_border_asset, active_border_rot)
+
+func _on_active_border_opt_changed(idx: int) -> void:
+	if active_border_opt == null:
+		return
+	var a_id = str(active_border_opt.get_item_metadata(idx)) if idx >= 0 else active_border_opt.get_item_text(idx)
+	if not a_id.is_empty():
+		_select_border_asset(a_id)
+
+func _on_border_rot_changed(new_rot: float) -> void:
+	active_border_rot = new_rot
+	_update_border_rot_highlights()
+	_update_border_status()
+	border_visual_paint_selected.emit(active_border_asset, active_border_rot)
+
+func _select_border_rot(rot_deg: int) -> void:
+	active_border_rot = float(rot_deg)
+	if active_border_rot_spin != null:
+		active_border_rot_spin.set_value_no_signal(active_border_rot)
+	_update_border_rot_highlights()
+	_update_border_status()
+	border_visual_paint_selected.emit(active_border_asset, active_border_rot)
+
+func _update_border_visual_highlights() -> void:
+	for k in border_asset_buttons.keys():
+		var btn: Button = border_asset_buttons[k]
+		if is_instance_valid(btn):
+			if k == active_border_asset:
+				btn.modulate = Color(1.6, 1.5, 0.3)
+			else:
+				btn.modulate = Color(1.0, 1.0, 1.0)
+
+func _update_border_rot_highlights() -> void:
+	for r in border_rot_buttons.keys():
+		var btn: Button = border_rot_buttons[r]
+		if is_instance_valid(btn):
+			if r == int(round(active_border_rot)):
+				btn.modulate = Color(1.6, 1.5, 0.3)
+			else:
+				btn.modulate = Color(1.0, 1.0, 1.0)
+
+func _update_border_status() -> void:
+	if border_status_lbl == null:
+		return
+	var count := 0
+	if current_stage != null:
+		count = current_stage.get_border_visuals_count()
+	border_status_lbl.text = "Active Border: %s (%.0f°)\nPlaced Borders: %d\nClick outer perimeter to paint or edit." % [active_border_asset, active_border_rot, count]
+
+func _on_paint_border_pressed() -> void:
+	border_visual_paint_selected.emit(active_border_asset, active_border_rot)
+	_update_border_status()
+
+func _on_erase_border_pressed() -> void:
+	border_erase_selected.emit()
+	if border_status_lbl != null:
+		var count := 0
+		if current_stage != null:
+			count = current_stage.get_border_visuals_count()
+		border_status_lbl.text = "Erase Border Mode active!\nPlaced Borders: %d\nClick outer perimeter to remove." % count
+
+func _on_clear_all_borders_pressed() -> void:
+	if current_stage != null:
+		current_stage.clear_all_border_visuals()
+		stage_settings_changed.emit(current_stage)
+		_update_border_status()
+
+func inspect_border_visual(stage: LaserStageData, side: String, index: int, visual_data: Dictionary) -> void:
+	current_selected_border_side = side
+	current_selected_border_index = index
+	if sel_border_box == null:
+		return
+	if visual_data.is_empty():
+		sel_border_box.visible = false
+		return
+	sel_border_box.visible = true
+	sel_border_lbl.text = "Selected Border: %s Perimeter Segment %d" % [side.to_upper(), index]
+	var cur_asset = str(visual_data.get("asset", ""))
+	var cur_rot = float(visual_data.get("rotation", 0.0))
+
+	sel_border_asset_opt.clear()
+	var selected_idx := 0
+	if stage != null:
+		stage.ensure_default_visual_libraries()
+		for i in range(stage.border_assets.size()):
+			var a = stage.border_assets[i]
+			var aid: String = str(a.get("id", "border_%d" % (i + 1)))
+			var aname: String = str(a.get("name", aid))
+			sel_border_asset_opt.add_item(aname)
+			var cur_idx = sel_border_asset_opt.item_count - 1
+			sel_border_asset_opt.set_item_metadata(cur_idx, aid)
+			if aid == cur_asset or aname == cur_asset or a.get("path", "") == cur_asset or (cur_asset.is_empty() and i == 0):
+				selected_idx = cur_idx
+
+	sel_border_asset_opt.select(selected_idx)
+	sel_border_rot_spin.set_value_no_signal(cur_rot)
+
+func _on_sel_border_rot_changed(new_rot: float) -> void:
+	if current_stage == null or current_selected_border_side.is_empty() or current_selected_border_index < 0:
+		return
+	var cur_vis = current_stage.get_border_visual(current_selected_border_side, current_selected_border_index)
+	var cur_asset = str(cur_vis.get("asset", active_border_asset))
+	current_stage.set_border_visual(current_selected_border_side, current_selected_border_index, cur_asset, new_rot)
+	stage_settings_changed.emit(current_stage)
+	border_visual_modified.emit(current_stage, current_selected_border_side, current_selected_border_index, cur_asset, new_rot)
+
+func _on_sel_border_asset_changed(idx: int) -> void:
+	if current_stage == null or current_selected_border_side.is_empty() or current_selected_border_index < 0:
+		return
+	var chosen_asset = str(sel_border_asset_opt.get_item_metadata(idx)) if idx >= 0 else sel_border_asset_opt.get_item_text(idx)
+	var cur_vis = current_stage.get_border_visual(current_selected_border_side, current_selected_border_index)
+	var cur_rot = float(cur_vis.get("rotation", active_border_rot))
+	current_stage.set_border_visual(current_selected_border_side, current_selected_border_index, chosen_asset, cur_rot)
+	stage_settings_changed.emit(current_stage)
+	border_visual_modified.emit(current_stage, current_selected_border_side, current_selected_border_index, chosen_asset, cur_rot)
+
+func _on_sel_border_remove_pressed() -> void:
+	if current_stage == null or current_selected_border_side.is_empty() or current_selected_border_index < 0:
+		return
+	current_stage.remove_border_visual(current_selected_border_side, current_selected_border_index)
+	sel_border_box.visible = false
+	current_selected_border_side = ""
+	current_selected_border_index = -1
+	stage_settings_changed.emit(current_stage)
+	_update_border_status()
+
+# =========================================================================
+# CORNER VISUAL HANDLERS
+# =========================================================================
+func _select_corner_asset(asset_key: String) -> void:
+	active_corner_asset = asset_key
+	if active_corner_opt != null and current_stage != null:
+		for i in range(active_corner_opt.item_count):
+			if str(active_corner_opt.get_item_metadata(i)) == asset_key:
+				active_corner_opt.select(i)
+				break
+	_update_corner_visual_highlights()
+	_update_corner_status()
+	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y)
+
+func _on_active_corner_opt_changed(idx: int) -> void:
+	if active_corner_opt == null:
+		return
+	var a_id = str(active_corner_opt.get_item_metadata(idx)) if idx >= 0 else active_corner_opt.get_item_text(idx)
+	if not a_id.is_empty():
+		_select_corner_asset(a_id)
+
+func _on_corner_rot_changed(new_rot: float) -> void:
+	active_corner_rot = new_rot
+	_update_corner_rot_highlights()
+	_update_corner_status()
+	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y)
+
+func _select_corner_rot(rot_deg: int) -> void:
+	active_corner_rot = float(rot_deg)
+	if active_corner_rot_spin != null:
+		active_corner_rot_spin.set_value_no_signal(active_corner_rot)
+	_update_corner_rot_highlights()
+	_update_corner_status()
+	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y)
+
+func _on_corner_mirror_toggled(_t: bool) -> void:
+	if active_corner_mx_chk != null:
+		active_corner_mirror_x = active_corner_mx_chk.button_pressed
+	if active_corner_my_chk != null:
+		active_corner_mirror_y = active_corner_my_chk.button_pressed
+	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y)
+
+func _update_corner_visual_highlights() -> void:
+	for k in corner_asset_buttons.keys():
+		var btn: Button = corner_asset_buttons[k]
+		if is_instance_valid(btn):
+			if k == active_corner_asset:
+				btn.modulate = Color(1.6, 1.5, 0.3)
+			else:
+				btn.modulate = Color(1.0, 1.0, 1.0)
+
+func _update_corner_rot_highlights() -> void:
+	for r in corner_rot_buttons.keys():
+		var btn: Button = corner_rot_buttons[r]
+		if is_instance_valid(btn):
+			if r == int(round(active_corner_rot)):
+				btn.modulate = Color(1.6, 1.5, 0.3)
+			else:
+				btn.modulate = Color(1.0, 1.0, 1.0)
+
+func _update_corner_status() -> void:
+	if corner_status_lbl == null:
+		return
+	var count := 0
+	if current_stage != null:
+		count = current_stage.get_corner_visuals_count()
+	corner_status_lbl.text = "Active Corner: %s (%.0f°)\nPlaced Corners: %d\nClick outer corner to paint or edit." % [active_corner_asset, active_corner_rot, count]
+
+func _on_paint_corner_pressed() -> void:
+	if active_corner_mx_chk != null:
+		active_corner_mirror_x = active_corner_mx_chk.button_pressed
+	if active_corner_my_chk != null:
+		active_corner_mirror_y = active_corner_my_chk.button_pressed
+	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y)
+	_update_corner_status()
+
+func _on_erase_corner_pressed() -> void:
+	corner_erase_selected.emit()
+	if corner_status_lbl != null:
+		var count := 0
+		if current_stage != null:
+			count = current_stage.get_corner_visuals_count()
+		corner_status_lbl.text = "Erase Corner Mode active!\nPlaced Corners: %d\nClick outer corner to remove." % count
+
+func _on_clear_all_corners_pressed() -> void:
+	if current_stage != null:
+		current_stage.clear_all_corner_visuals()
+		stage_settings_changed.emit(current_stage)
+		_update_corner_status()
+
+func inspect_corner_visual(stage: LaserStageData, corner: String, visual_data: Dictionary) -> void:
+	current_selected_corner_name = corner
+	if sel_corner_box == null:
+		return
+	if visual_data.is_empty():
+		sel_corner_box.visible = false
+		return
+	sel_corner_box.visible = true
+	sel_corner_lbl.text = "Selected Corner: %s" % corner.replace("_", " ").capitalize()
+	var cur_asset = str(visual_data.get("asset", ""))
+	var cur_rot = float(visual_data.get("rotation", 0.0))
+	var cur_mx = bool(visual_data.get("mirror_x", false))
+	var cur_my = bool(visual_data.get("mirror_y", false))
+
+	sel_corner_asset_opt.clear()
+	var selected_idx := 0
+	if stage != null:
+		stage.ensure_default_visual_libraries()
+		for i in range(stage.corner_assets.size()):
+			var a = stage.corner_assets[i]
+			var aid: String = str(a.get("id", "corner_%d" % (i + 1)))
+			var aname: String = str(a.get("name", aid))
+			sel_corner_asset_opt.add_item(aname)
+			var cur_idx = sel_corner_asset_opt.item_count - 1
+			sel_corner_asset_opt.set_item_metadata(cur_idx, aid)
+			if aid == cur_asset or aname == cur_asset or a.get("path", "") == cur_asset or (cur_asset.is_empty() and i == 0):
+				selected_idx = cur_idx
+
+	sel_corner_asset_opt.select(selected_idx)
+	sel_corner_rot_spin.set_value_no_signal(cur_rot)
+	sel_corner_mx_chk.set_pressed_no_signal(cur_mx)
+	sel_corner_my_chk.set_pressed_no_signal(cur_my)
+
+func _on_sel_corner_rot_changed(new_rot: float) -> void:
+	if current_stage == null or current_selected_corner_name.is_empty():
+		return
+	var cur_vis = current_stage.get_corner_visual(current_selected_corner_name)
+	var cur_asset = str(cur_vis.get("asset", active_corner_asset))
+	var cur_mx = bool(cur_vis.get("mirror_x", false))
+	var cur_my = bool(cur_vis.get("mirror_y", false))
+	current_stage.set_corner_visual(current_selected_corner_name, cur_asset, new_rot, cur_mx, cur_my)
+	stage_settings_changed.emit(current_stage)
+	corner_visual_modified.emit(current_stage, current_selected_corner_name, cur_asset, new_rot, cur_mx, cur_my)
+
+func _on_sel_corner_asset_changed(idx: int) -> void:
+	if current_stage == null or current_selected_corner_name.is_empty():
+		return
+	var chosen_asset = str(sel_corner_asset_opt.get_item_metadata(idx)) if idx >= 0 else sel_corner_asset_opt.get_item_text(idx)
+	var cur_vis = current_stage.get_corner_visual(current_selected_corner_name)
+	var cur_rot = float(cur_vis.get("rotation", active_corner_rot))
+	var cur_mx = bool(cur_vis.get("mirror_x", false))
+	var cur_my = bool(cur_vis.get("mirror_y", false))
+	current_stage.set_corner_visual(current_selected_corner_name, chosen_asset, cur_rot, cur_mx, cur_my)
+	stage_settings_changed.emit(current_stage)
+	corner_visual_modified.emit(current_stage, current_selected_corner_name, chosen_asset, cur_rot, cur_mx, cur_my)
+
+func _on_sel_corner_mirror_changed(_t: bool) -> void:
+	if current_stage == null or current_selected_corner_name.is_empty():
+		return
+	var cur_vis = current_stage.get_corner_visual(current_selected_corner_name)
+	var cur_asset = str(cur_vis.get("asset", active_corner_asset))
+	var cur_rot = float(cur_vis.get("rotation", active_corner_rot))
+	var mx = sel_corner_mx_chk.button_pressed if sel_corner_mx_chk != null else false
+	var my = sel_corner_my_chk.button_pressed if sel_corner_my_chk != null else false
+	current_stage.set_corner_visual(current_selected_corner_name, cur_asset, cur_rot, mx, my)
+	stage_settings_changed.emit(current_stage)
+	corner_visual_modified.emit(current_stage, current_selected_corner_name, cur_asset, cur_rot, mx, my)
+
+func _on_sel_corner_remove_pressed() -> void:
+	if current_stage == null or current_selected_corner_name.is_empty():
+		return
+	current_stage.remove_corner_visual(current_selected_corner_name)
+	sel_corner_box.visible = false
+	current_selected_corner_name = ""
+	stage_settings_changed.emit(current_stage)
+	_update_corner_status()
 

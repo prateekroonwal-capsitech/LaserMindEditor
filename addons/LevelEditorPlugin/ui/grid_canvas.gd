@@ -8,8 +8,12 @@ signal selection_changed(selected_objects: Array[LaserObjectData])
 signal object_modified(object: LaserObjectData)
 signal stage_dirty_needed
 signal stage_activated(stage_index: int)
+signal cell_visual_selected(stage: LaserStageData, cell: Vector2i, visual_data: Dictionary)
+signal border_visual_selected(stage: LaserStageData, side: String, index: int, visual_data: Dictionary)
+signal corner_visual_selected(stage: LaserStageData, corner: String, visual_data: Dictionary)
 
-const BoardLayoutManager = preload("res://Game/Scripts/board_layout_manager.gd")
+const BoardLayoutManager = preload("res://addons/LevelEditorPlugin/core/board_layout_helper.gd")
+const BoardVisualGenerator = preload("res://addons/LevelEditorPlugin/core/board_visual_generator.gd")
 
 enum ToolMode {
 	SELECT,
@@ -18,7 +22,11 @@ enum ToolMode {
 	ROTATE,
 	ERASE,
 	TILE_PAINT,
-	TILE_ERASE
+	TILE_ERASE,
+	BORDER_PAINT,
+	BORDER_ERASE,
+	CORNER_PAINT,
+	CORNER_ERASE
 }
 
 const STAGE_GAP_CELLS: int = 4
@@ -38,6 +46,28 @@ var active_palette_rot: int = 0
 var active_palette_color: Color = Color.RED
 var active_palette_custom_data: Dictionary = {}
 var active_tile_coord: Vector2i = Vector2i(0, 0)
+var active_tile_type: BoardVisualGenerator.TileType = BoardVisualGenerator.TileType.MIDDLE
+var active_tile_texture: Texture2D = null
+var active_tile_rot: int = 0
+var active_tile_rot_float: float = 0.0
+var active_cell_asset: String = "cell_1"
+var selected_cell_visual_pos: Vector2i = Vector2i(-1, -1)
+
+# Outer Perimeter Border Visual Painting State
+var active_border_asset: String = "border_1"
+var active_border_rot: float = 0.0
+var hovered_border_side: String = ""
+var hovered_border_index: int = -1
+var selected_border_side: String = ""
+var selected_border_index: int = -1
+
+# Outer Perimeter Corner Visual Painting State
+var active_corner_asset: String = "corner_1"
+var active_corner_rot: float = 0.0
+var active_corner_mirror_x: bool = false
+var active_corner_mirror_y: bool = false
+var hovered_corner_name: String = ""
+var selected_corner_name: String = ""
 
 var zoom_level: float = 1.0
 var pan_offset: Vector2 = Vector2(100, 80)
@@ -205,6 +235,57 @@ func screen_to_stage_and_cell(screen_pos: Vector2) -> Dictionary:
 		"world_cell": world_cell
 	}
 
+func screen_to_stage_and_perimeter_border(screen_pos: Vector2) -> Dictionary:
+	var c_sz = cell_size * zoom_level
+	var visible_stages = stages if is_side_by_side else ([current_stage] if current_stage != null else [])
+	for st in visible_stages:
+		if st == null:
+			continue
+		var r = get_stage_rect_in_cells(st.stage_index)
+		var board_pos = pan_offset + Vector2(r.position) * c_sz
+
+		# Top perimeter
+		for i in range(st.grid_width):
+			var rect := BoardVisualGenerator.get_perimeter_border_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, "top", i)
+			if rect.has_point(screen_pos):
+				return { "inside": true, "stage": st, "stage_idx": st.stage_index, "side": "top", "index": i, "rect": rect }
+
+		# Bottom perimeter
+		for i in range(st.grid_width):
+			var rect := BoardVisualGenerator.get_perimeter_border_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, "bottom", i)
+			if rect.has_point(screen_pos):
+				return { "inside": true, "stage": st, "stage_idx": st.stage_index, "side": "bottom", "index": i, "rect": rect }
+
+		# Left perimeter
+		for i in range(st.grid_height):
+			var rect := BoardVisualGenerator.get_perimeter_border_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, "left", i)
+			if rect.has_point(screen_pos):
+				return { "inside": true, "stage": st, "stage_idx": st.stage_index, "side": "left", "index": i, "rect": rect }
+
+		# Right perimeter
+		for i in range(st.grid_height):
+			var rect := BoardVisualGenerator.get_perimeter_border_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, "right", i)
+			if rect.has_point(screen_pos):
+				return { "inside": true, "stage": st, "stage_idx": st.stage_index, "side": "right", "index": i, "rect": rect }
+
+	return { "inside": false, "stage": null, "stage_idx": -1, "side": "", "index": -1, "rect": Rect2() }
+
+func screen_to_stage_and_outer_corner(screen_pos: Vector2) -> Dictionary:
+	var c_sz = cell_size * zoom_level
+	var visible_stages = stages if is_side_by_side else ([current_stage] if current_stage != null else [])
+	for st in visible_stages:
+		if st == null:
+			continue
+		var r = get_stage_rect_in_cells(st.stage_index)
+		var board_pos = pan_offset + Vector2(r.position) * c_sz
+		var corners = ["top_left", "top_right", "bottom_left", "bottom_right"]
+		for c_name in corners:
+			var rect := BoardVisualGenerator.get_outer_corner_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, c_name)
+			if rect.has_point(screen_pos):
+				return { "inside": true, "stage": st, "stage_idx": st.stage_index, "corner": c_name, "rect": rect }
+
+	return { "inside": false, "stage": null, "stage_idx": -1, "corner": "", "rect": Rect2() }
+
 func stage_cell_to_screen(stage_idx: int, local_cell: Vector2i) -> Vector2:
 	var r = get_stage_rect_in_cells(stage_idx)
 	return pan_offset + Vector2(r.position + local_cell) * cell_size * zoom_level
@@ -349,6 +430,29 @@ func _gui_input(event: InputEvent) -> void:
 		elif mb.button_index == MOUSE_BUTTON_RIGHT:
 			if mb.pressed:
 				var hit = screen_to_stage_and_cell(mb.position)
+				var border_hit = screen_to_stage_and_perimeter_border(mb.position)
+				var corner_hit = screen_to_stage_and_outer_corner(mb.position)
+
+				if current_tool == ToolMode.BORDER_PAINT and border_hit.inside:
+					var st: LaserStageData = border_hit.stage
+					if st.stage_index != current_stage_idx:
+						current_stage_idx = st.stage_index
+						current_stage = st
+						stage_activated.emit(current_stage_idx)
+					_erase_border(st, border_hit.side, border_hit.index)
+					accept_event()
+					return
+
+				if current_tool == ToolMode.CORNER_PAINT and corner_hit.inside:
+					var st: LaserStageData = corner_hit.stage
+					if st.stage_index != current_stage_idx:
+						current_stage_idx = st.stage_index
+						current_stage = st
+						stage_activated.emit(current_stage_idx)
+					_erase_corner(st, corner_hit.corner)
+					accept_event()
+					return
+
 				if hit.inside:
 					var st: LaserStageData = hit.stage
 					var cell: Vector2i = hit.cell
@@ -383,14 +487,26 @@ func _gui_input(event: InputEvent) -> void:
 			queue_redraw()
 		elif is_brush_painting:
 			var hit = screen_to_stage_and_cell(mm.position)
-			if hit.inside and (hit.cell != last_painted_cell or hit.stage != last_painted_stage):
+			var border_hit = screen_to_stage_and_perimeter_border(mm.position)
+			var corner_hit = screen_to_stage_and_outer_corner(mm.position)
+			if current_tool == ToolMode.CORNER_PAINT and corner_hit.inside:
+				_paint_corner(corner_hit.stage, corner_hit.corner)
+			elif current_tool == ToolMode.BORDER_PAINT and border_hit.inside:
+				_paint_border(border_hit.stage, border_hit.side, border_hit.index)
+			elif hit.inside and (hit.cell != last_painted_cell or hit.stage != last_painted_stage):
 				if current_tool == ToolMode.TILE_PAINT:
 					_paint_board_tile(hit.stage, hit.cell)
 				else:
 					_paint_cell(hit.stage, hit.cell)
 		elif is_brush_erasing:
 			var hit = screen_to_stage_and_cell(mm.position)
-			if hit.inside and (hit.cell != last_painted_cell or hit.stage != last_painted_stage):
+			var border_hit = screen_to_stage_and_perimeter_border(mm.position)
+			var corner_hit = screen_to_stage_and_outer_corner(mm.position)
+			if current_tool == ToolMode.CORNER_ERASE and corner_hit.inside:
+				_erase_corner(corner_hit.stage, corner_hit.corner)
+			elif current_tool == ToolMode.BORDER_ERASE and border_hit.inside:
+				_erase_border(border_hit.stage, border_hit.side, border_hit.index)
+			elif hit.inside and (hit.cell != last_painted_cell or hit.stage != last_painted_stage):
 				if current_tool == ToolMode.TILE_ERASE:
 					_erase_board_tile(hit.stage, hit.cell)
 				else:
@@ -405,21 +521,40 @@ func _gui_input(event: InputEvent) -> void:
 					queue_redraw()
 		else:
 			var hit = screen_to_stage_and_cell(mm.position)
+			var border_hit = screen_to_stage_and_perimeter_border(mm.position)
+			var corner_hit = screen_to_stage_and_outer_corner(mm.position)
 			var old_hp := hovered_frame_piece
 			var old_hs := hovered_frame_stage
+			var old_bs := hovered_border_side
+			var old_bi := hovered_border_index
+			var old_cn := hovered_corner_name
+
+			if corner_hit.inside:
+				hovered_corner_name = corner_hit.corner
+			else:
+				hovered_corner_name = ""
+
+			if border_hit.inside:
+				hovered_border_side = border_hit.side
+				hovered_border_index = border_hit.index
+			else:
+				hovered_border_side = ""
+				hovered_border_index = -1
+
 			if hit.inside:
 				hovered_frame_piece = ""
 				hovered_frame_stage = null
-				if hit.stage_idx != hovered_stage_idx or hit.cell != hovered_cell:
+				if hit.stage_idx != hovered_stage_idx or hit.cell != hovered_cell or hovered_border_side != old_bs or hovered_border_index != old_bi or hovered_corner_name != old_cn:
 					hovered_stage_idx = hit.stage_idx
 					hovered_cell = hit.cell
 					queue_redraw()
 				elif old_hp != "":
 					queue_redraw()
 			else:
-				if hovered_stage_idx != -1 or hovered_cell != Vector2i(-1, -1):
+				if hovered_stage_idx != -1 or hovered_cell != Vector2i(-1, -1) or hovered_border_side != old_bs or hovered_border_index != old_bi or hovered_corner_name != old_cn:
 					hovered_stage_idx = -1
 					hovered_cell = Vector2i(-1, -1)
+					queue_redraw()
 				var found_piece := ""
 				var found_stage: LaserStageData = null
 				var c_sz := cell_size * zoom_level
@@ -448,10 +583,83 @@ func _gui_input(event: InputEvent) -> void:
 					queue_redraw()
 
 func _handle_left_click(mb: InputEventMouseButton) -> void:
-	var hit = screen_to_stage_and_cell(mb.position)
 	if mb.pressed:
 		if is_inside_tree():
 			grab_focus()
+
+		# 1. Outer Corner Tool Mode Handling
+		if current_tool == ToolMode.CORNER_PAINT or current_tool == ToolMode.CORNER_ERASE:
+			var ch = screen_to_stage_and_outer_corner(mb.position)
+			if ch.inside:
+				var cst: LaserStageData = ch.stage
+				if cst.stage_index != current_stage_idx:
+					current_stage_idx = cst.stage_index
+					current_stage = cst
+					stage_activated.emit(current_stage_idx)
+				if current_tool == ToolMode.CORNER_PAINT:
+					is_brush_painting = true
+					_paint_corner(cst, ch.corner)
+				else:
+					is_brush_erasing = true
+					_erase_corner(cst, ch.corner)
+				return
+
+		# 2. Outer Border Tool Mode Handling
+		if current_tool == ToolMode.BORDER_PAINT or current_tool == ToolMode.BORDER_ERASE:
+			var bh = screen_to_stage_and_perimeter_border(mb.position)
+			if bh.inside:
+				var bst: LaserStageData = bh.stage
+				if bst.stage_index != current_stage_idx:
+					current_stage_idx = bst.stage_index
+					current_stage = bst
+					stage_activated.emit(current_stage_idx)
+				if current_tool == ToolMode.BORDER_PAINT:
+					is_brush_painting = true
+					_paint_border(bst, bh.side, bh.index)
+				else:
+					is_brush_erasing = true
+					_erase_border(bst, bh.side, bh.index)
+				return
+
+		var hit = screen_to_stage_and_cell(mb.position)
+
+		# 3. Outer Grid Inspection when in SELECT mode
+		if current_tool == ToolMode.SELECT:
+			var ch = screen_to_stage_and_outer_corner(mb.position)
+			if ch.inside:
+				var cst: LaserStageData = ch.stage
+				if cst.has_corner_visual(ch.corner):
+					if cst.stage_index != current_stage_idx:
+						current_stage_idx = cst.stage_index
+						current_stage = cst
+						stage_activated.emit(current_stage_idx)
+					selected_corner_name = ch.corner
+					selected_border_side = ""
+					selected_border_index = -1
+					selected_cell_visual_pos = Vector2i(-1, -1)
+					corner_visual_selected.emit(cst, ch.corner, cst.get_corner_visual(ch.corner))
+					selected_objects.clear()
+					selection_changed.emit(selected_objects)
+					queue_redraw()
+					return
+
+			var bh = screen_to_stage_and_perimeter_border(mb.position)
+			if bh.inside:
+				var bst: LaserStageData = bh.stage
+				if bst.has_border_visual(bh.side, bh.index):
+					if bst.stage_index != current_stage_idx:
+						current_stage_idx = bst.stage_index
+						current_stage = bst
+						stage_activated.emit(current_stage_idx)
+					selected_border_side = bh.side
+					selected_border_index = bh.index
+					selected_corner_name = ""
+					selected_cell_visual_pos = Vector2i(-1, -1)
+					border_visual_selected.emit(bst, bh.side, bh.index, bst.get_border_visual(bh.side, bh.index))
+					selected_objects.clear()
+					selection_changed.emit(selected_objects)
+					queue_redraw()
+					return
 
 		if not hit.inside:
 			var c_sz := cell_size * zoom_level
@@ -508,6 +716,7 @@ func _handle_left_click(mb: InputEventMouseButton) -> void:
 		match current_tool:
 			ToolMode.SELECT:
 				var obj = st.get_object_at(cell)
+
 				if obj != null:
 					if not Input.is_key_pressed(KEY_CTRL) and not Input.is_key_pressed(KEY_SHIFT):
 						selected_objects.clear()
@@ -519,7 +728,21 @@ func _handle_left_click(mb: InputEventMouseButton) -> void:
 					is_dragging_object = true
 					object_selected.emit(obj)
 					selection_changed.emit(selected_objects)
+				elif st.has_cell_visual(cell):
+					selected_cell_visual_pos = cell
+					selected_border_side = ""
+					selected_border_index = -1
+					selected_corner_name = ""
+					cell_visual_selected.emit(st, cell, st.get_cell_visual(cell))
+					if not Input.is_key_pressed(KEY_CTRL):
+						selected_objects.clear()
+						selection_changed.emit(selected_objects)
 				else:
+					selected_cell_visual_pos = Vector2i(-1, -1)
+					selected_border_side = ""
+					selected_border_index = -1
+					selected_corner_name = ""
+					cell_visual_selected.emit(st, cell, {})
 					if not Input.is_key_pressed(KEY_CTRL):
 						selected_objects.clear()
 						selection_changed.emit(selected_objects)
@@ -666,7 +889,15 @@ func _paint_board_tile(st: LaserStageData, cell: Vector2i) -> void:
 	last_painted_cell = cell
 	last_painted_stage = st
 	var snap = st.duplicate_data() if undo_manager != null else null
-	st.set_board_tile(cell, active_tile_coord)
+	var t_rot: float = active_tile_rot_float
+	var asset_str: String = active_cell_asset
+	if asset_str.is_empty():
+		st.ensure_default_visual_libraries()
+		if not st.cell_assets.is_empty():
+			asset_str = str(st.cell_assets[0].get("id", "cell_1"))
+	st.set_cell_visual(cell, asset_str, t_rot)
+	selected_cell_visual_pos = cell
+	cell_visual_selected.emit(st, cell, st.get_cell_visual(cell))
 	if undo_manager != null and snap != null:
 		undo_manager.commit_snapshot(snap, st)
 	stage_dirty_needed.emit()
@@ -678,7 +909,72 @@ func _erase_board_tile(st: LaserStageData, cell: Vector2i) -> void:
 	last_painted_cell = cell
 	last_painted_stage = st
 	var snap = st.duplicate_data() if undo_manager != null else null
-	st.remove_board_tile(cell)
+	st.remove_cell_visual(cell)
+	if selected_cell_visual_pos == cell:
+		selected_cell_visual_pos = Vector2i(-1, -1)
+		cell_visual_selected.emit(st, cell, {})
+	if undo_manager != null and snap != null:
+		undo_manager.commit_snapshot(snap, st)
+	stage_dirty_needed.emit()
+	queue_redraw()
+
+func _paint_border(st: LaserStageData, side: String, index: int) -> void:
+	if st == null or side.is_empty() or index < 0:
+		return
+	var snap = st.duplicate_data() if undo_manager != null else null
+	var asset_str: String = active_border_asset
+	if asset_str.is_empty():
+		st.ensure_default_visual_libraries()
+		if not st.border_assets.is_empty():
+			asset_str = str(st.border_assets[0].get("id", "border_1"))
+	st.set_border_visual(side, index, asset_str, active_border_rot)
+	selected_border_side = side
+	selected_border_index = index
+	border_visual_selected.emit(st, side, index, st.get_border_visual(side, index))
+	if undo_manager != null and snap != null:
+		undo_manager.commit_snapshot(snap, st)
+	stage_dirty_needed.emit()
+	queue_redraw()
+
+func _erase_border(st: LaserStageData, side: String, index: int) -> void:
+	if st == null or side.is_empty() or index < 0:
+		return
+	var snap = st.duplicate_data() if undo_manager != null else null
+	st.remove_border_visual(side, index)
+	if selected_border_side == side and selected_border_index == index:
+		selected_border_side = ""
+		selected_border_index = -1
+		border_visual_selected.emit(st, side, index, {})
+	if undo_manager != null and snap != null:
+		undo_manager.commit_snapshot(snap, st)
+	stage_dirty_needed.emit()
+	queue_redraw()
+
+func _paint_corner(st: LaserStageData, corner: String) -> void:
+	if st == null or corner.is_empty():
+		return
+	var snap = st.duplicate_data() if undo_manager != null else null
+	var asset_str: String = active_corner_asset
+	if asset_str.is_empty():
+		st.ensure_default_visual_libraries()
+		if not st.corner_assets.is_empty():
+			asset_str = str(st.corner_assets[0].get("id", "corner_1"))
+	st.set_corner_visual(corner, asset_str, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y)
+	selected_corner_name = corner
+	corner_visual_selected.emit(st, corner, st.get_corner_visual(corner))
+	if undo_manager != null and snap != null:
+		undo_manager.commit_snapshot(snap, st)
+	stage_dirty_needed.emit()
+	queue_redraw()
+
+func _erase_corner(st: LaserStageData, corner: String) -> void:
+	if st == null or corner.is_empty():
+		return
+	var snap = st.duplicate_data() if undo_manager != null else null
+	st.remove_corner_visual(corner)
+	if selected_corner_name == corner:
+		selected_corner_name = ""
+		corner_visual_selected.emit(st, corner, {})
 	if undo_manager != null and snap != null:
 		undo_manager.commit_snapshot(snap, st)
 	stage_dirty_needed.emit()
@@ -743,85 +1039,17 @@ func _draw() -> void:
 		var bg_col = Color(0.16, 0.18, 0.22, 1.0) if is_active else Color(0.13, 0.14, 0.17, 0.95)
 		draw_rect(Rect2(board_pos, board_sz), bg_col)
 
-		var board_tex: Texture2D = BoardLayoutManager.get_board_texture(st.board_image_path) if not st.board_image_path.is_empty() else null
-		var b_cols := st.get_effective_slice_cols()
-		var b_rows := st.get_effective_slice_rows()
-		var b_margins := st.get_board_margins()
-
-		if board_tex != null and st.has_board_margins():
-			BoardLayoutManager.draw_board_ninepatch_frame(
-				self,
-				board_tex,
-				Rect2(board_pos, board_sz),
-				b_margins,
-				st.grid_width,
-				st.grid_height,
-				st.hidden_frame_pieces
-			)
-
-			if st.hidden_frame_pieces.size() > 0:
-				var all_p := BoardLayoutManager.get_frame_piece_rects(
-					Rect2(board_pos, board_sz),
-					b_margins,
-					board_tex.get_size(),
-					st.grid_width,
-					st.grid_height
-				)
-				for hp in st.hidden_frame_pieces:
-					if all_p.has(hp):
-						var hr: Rect2 = all_p[hp]
-						draw_rect(hr, Color(0.85, 0.25, 0.25, 0.08), true)
-						draw_rect(hr, Color(0.85, 0.25, 0.25, 0.3), false, 1.0)
-
-			if hovered_frame_stage == st and not hovered_frame_piece.is_empty():
-				var p_rects := BoardLayoutManager.get_frame_piece_rects(
-					Rect2(board_pos, board_sz),
-					b_margins,
-					board_tex.get_size(),
-					st.grid_width,
-					st.grid_height
-				)
-				if p_rects.has(hovered_frame_piece):
-					var hr: Rect2 = p_rects[hovered_frame_piece]
-					var is_hidden := st.is_frame_piece_hidden(hovered_frame_piece)
-					var h_col := Color(0.2, 0.9, 0.4, 0.45) if is_hidden else Color(1.0, 0.3, 0.2, 0.45)
-					draw_rect(hr, h_col, true)
-					draw_rect(hr, Color(h_col.r, h_col.g, h_col.b, 0.95), false, 2.0 * zoom_level)
-
-		for x in range(st.grid_width):
-			for y in range(st.grid_height):
-				var cell_rect := Rect2(board_pos + Vector2(x, y) * c_sz, Vector2(c_sz, c_sz))
-				var is_even := (x + y) % 2 == 0
-				var tile_col: Color
-				if is_active:
-					tile_col = Color(0.18, 0.20, 0.25, 1.0) if is_even else Color(0.15, 0.17, 0.21, 1.0)
-				else:
-					tile_col = Color(0.15, 0.16, 0.19, 1.0) if is_even else Color(0.12, 0.13, 0.16, 1.0)
-				draw_rect(cell_rect, tile_col)
-
-				if board_tex != null and st.has_board_tile(Vector2i(x, y)):
-					var tc := st.get_board_tile(Vector2i(x, y))
-					if tc.x >= 0 and tc.y >= 0:
-						var s_rect := BoardLayoutManager.get_tile_src_rect(board_tex, tc.x, tc.y, b_cols, b_rows, b_margins)
-						draw_texture_rect_region(board_tex, cell_rect, s_rect)
-
-				if st.show_tile_borders:
-					var border_col = Color(0.24, 0.27, 0.33, 0.35) if is_active else Color(0.20, 0.22, 0.26, 0.25)
-					draw_rect(cell_rect, border_col, false, 1.0)
+		BoardVisualGenerator.draw_board(
+			self,
+			st,
+			board_pos,
+			Vector2(c_sz, c_sz),
+			zoom_level,
+			st.show_tile_borders,
+			Color(0.24, 0.27, 0.33, 0.35) if is_active else Color(0.20, 0.22, 0.26, 0.25)
+		)
 
 		var outer_bounds = Rect2(board_pos, board_sz)
-		if board_tex != null and st.has_board_margins():
-			var sz := board_tex.get_size()
-			var L := float(b_margins.x)
-			var T := float(b_margins.y)
-			var R := float(b_margins.z)
-			var B := float(b_margins.w)
-			var inner_w := maxf(1.0, sz.x - L - R)
-			var inner_h := maxf(1.0, sz.y - T - B)
-			var sx: float = board_sz.x / inner_w
-			var sy: float = board_sz.y / inner_h
-			outer_bounds = Rect2(board_pos.x - L * sx, board_pos.y - T * sy, board_sz.x + (L + R) * sx, board_sz.y + (T + B) * sy)
-
 		if is_active:
 			draw_rect(outer_bounds.grow(2.0 * zoom_level), Color(1.0, 0.82, 0.2, 0.85), false, 2.5 * zoom_level)
 			draw_rect(outer_bounds.grow(4.0 * zoom_level), Color(1.0, 0.82, 0.2, 0.25), false, 1.5 * zoom_level)
@@ -883,6 +1111,55 @@ func _draw() -> void:
 				draw_rect(sel_rect, Color(1.0, 0.8, 0.2, 0.2))
 				draw_rect(sel_rect, Color(1.0, 0.85, 0.1, 1.0), false, 2.5)
 
+		# Selected Cell Visual Highlight
+		if is_active and selected_cell_visual_pos.x >= 0 and st.has_cell_visual(selected_cell_visual_pos):
+			var cv_rect := Rect2(board_pos + Vector2(selected_cell_visual_pos) * c_sz, Vector2(c_sz, c_sz))
+			draw_rect(cv_rect, Color(1.0, 0.85, 0.1, 0.2))
+			draw_rect(cv_rect, Color(1.0, 0.85, 0.1, 1.0), false, 2.5 * zoom_level)
+
+		# Selected Border Visual Highlight
+		if is_active and not selected_border_side.is_empty() and selected_border_index >= 0 and st.has_border_visual(selected_border_side, selected_border_index):
+			var bv_rect := BoardVisualGenerator.get_perimeter_border_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, selected_border_side, selected_border_index)
+			draw_rect(bv_rect, Color(1.0, 0.85, 0.1, 0.25))
+			draw_rect(bv_rect, Color(1.0, 0.85, 0.1, 1.0), false, 2.5 * zoom_level)
+
+		# Selected Corner Visual Highlight
+		if is_active and not selected_corner_name.is_empty() and st.has_corner_visual(selected_corner_name):
+			var crn_rect := BoardVisualGenerator.get_outer_corner_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, selected_corner_name)
+			draw_rect(crn_rect, Color(1.0, 0.85, 0.1, 0.25))
+			draw_rect(crn_rect, Color(1.0, 0.85, 0.1, 1.0), false, 2.5 * zoom_level)
+
+		if is_active and is_box_selecting:
+			var sel_rect = Rect2(box_select_start, box_select_current - box_select_start).abs()
+			draw_rect(sel_rect, Color(0.3, 0.6, 1.0, 0.15))
+			draw_rect(sel_rect, Color(0.3, 0.6, 1.0, 0.8), false, 1.5)
+
+		# Outer Perimeter Corner Paint/Erase Previews and Hover
+		if is_active and not hovered_corner_name.is_empty() and (current_tool == ToolMode.CORNER_PAINT or current_tool == ToolMode.CORNER_ERASE or current_tool == ToolMode.SELECT):
+			var crn_preview_rect := BoardVisualGenerator.get_outer_corner_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, hovered_corner_name)
+			if current_tool == ToolMode.CORNER_PAINT:
+				var c_tex: Texture2D = BoardVisualGenerator.get_corner_asset_texture(st, active_corner_asset)
+				if c_tex != null:
+					BoardVisualGenerator.draw_cell_visual(self, crn_preview_rect, c_tex, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y, Color(1.0, 1.0, 1.0, 0.65))
+				draw_rect(crn_preview_rect, Color(1.0, 0.9, 0.2, 0.85), false, 2.0 * zoom_level)
+			elif current_tool == ToolMode.CORNER_ERASE:
+				draw_rect(crn_preview_rect, Color(1.0, 0.2, 0.2, 0.65), false, 2.0 * zoom_level)
+			elif current_tool == ToolMode.SELECT and st.has_corner_visual(hovered_corner_name):
+				draw_rect(crn_preview_rect, Color(1.0, 1.0, 1.0, 0.25), false, 1.5 * zoom_level)
+
+		# Outer Perimeter Border Paint/Erase Previews and Hover
+		if is_active and not hovered_border_side.is_empty() and hovered_border_index >= 0 and (current_tool == ToolMode.BORDER_PAINT or current_tool == ToolMode.BORDER_ERASE or current_tool == ToolMode.SELECT):
+			var border_preview_rect := BoardVisualGenerator.get_perimeter_border_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, hovered_border_side, hovered_border_index)
+			if current_tool == ToolMode.BORDER_PAINT:
+				var b_tex: Texture2D = BoardVisualGenerator.get_border_asset_texture(st, active_border_asset)
+				if b_tex != null:
+					BoardVisualGenerator.draw_cell_visual(self, border_preview_rect, b_tex, active_border_rot, false, false, Color(1.0, 1.0, 1.0, 0.65))
+				draw_rect(border_preview_rect, Color(1.0, 0.9, 0.2, 0.85), false, 2.0 * zoom_level)
+			elif current_tool == ToolMode.BORDER_ERASE:
+				draw_rect(border_preview_rect, Color(1.0, 0.2, 0.2, 0.65), false, 2.0 * zoom_level)
+			elif current_tool == ToolMode.SELECT and st.has_border_visual(hovered_border_side, hovered_border_index):
+				draw_rect(border_preview_rect, Color(1.0, 1.0, 1.0, 0.25), false, 1.5 * zoom_level)
+
 		if hovered_stage_idx == st.stage_index and st.is_inside_grid(hovered_cell):
 			var h_rect := Rect2(board_pos + Vector2(hovered_cell) * c_sz, Vector2(c_sz, c_sz))
 			draw_rect(h_rect, Color(1.0, 1.0, 1.0, 0.12), false, 1.5)
@@ -895,9 +1172,11 @@ func _draw() -> void:
 				else:
 					var center = board_pos + (Vector2(hovered_cell) + Vector2(0.5, 0.5)) * c_sz
 					draw_circle(center, 8.0 * zoom_level, Color(active_palette_color.r, active_palette_color.g, active_palette_color.b, 0.45))
-			elif current_tool == ToolMode.TILE_PAINT and board_tex != null:
-				var s_rect := BoardLayoutManager.get_tile_src_rect(board_tex, active_tile_coord.x, active_tile_coord.y, b_cols, b_rows, b_margins)
-				draw_texture_rect_region(board_tex, h_rect, s_rect, Color(1.0, 1.0, 1.0, 0.65))
+			elif current_tool == ToolMode.TILE_PAINT:
+				var prev_tex: Texture2D = BoardVisualGenerator.get_cell_asset_texture(st, active_cell_asset)
+				if prev_tex != null:
+					var r_deg: float = active_tile_rot_float if active_tile_rot_float != 0.0 else float(active_tile_rot)
+					BoardVisualGenerator.draw_cell_visual(self, h_rect, prev_tex, r_deg, false, false, Color(1.0, 1.0, 1.0, 0.65))
 				draw_rect(h_rect, Color(1.0, 0.9, 0.2, 0.85), false, 2.0 * zoom_level)
 			elif current_tool == ToolMode.TILE_ERASE:
 				draw_rect(h_rect, Color(1.0, 0.2, 0.2, 0.6), false, 2.0 * zoom_level)

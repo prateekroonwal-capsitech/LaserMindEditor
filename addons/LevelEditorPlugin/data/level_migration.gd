@@ -2,20 +2,44 @@
 extends RefCounted
 class_name LevelMigration
 
-const LEGACY_DIR: String = "res://Game/Data/Levels/"
-const LASER_MIND_DIR: String = "res://Game/Data/LaserMindLevels/"
+const DEFAULT_LEGACY_DIR: String = "res://Game/Data/Levels/"
+const DEFAULT_LASER_MIND_DIR: String = "res://Game/Data/LaserMindLevels/"
+const LEGACY_DIR: String = DEFAULT_LEGACY_DIR
+const LASER_MIND_DIR: String = DEFAULT_LASER_MIND_DIR
 const LASER_TRES_PATTERN: String = "res://Game/Data/LaserMindLevels/Level_%03d.tres"
 const LASER_JSON_PATTERN: String = "res://Game/Data/LaserMindLevels/Level_%03d.json"
 const LEGACY_PATTERN: String = "res://Game/Data/Levels/Level_%03d.tres"
 
+static func get_levels_dir() -> String:
+	if ProjectSettings.has_setting("laser_editor/paths/levels_directory"):
+		var custom_dir: String = str(ProjectSettings.get_setting("laser_editor/paths/levels_directory", "")).strip_edges()
+		if not custom_dir.is_empty():
+			if not custom_dir.ends_with("/"):
+				custom_dir += "/"
+			return custom_dir
+	if DirAccess.dir_exists_absolute(DEFAULT_LASER_MIND_DIR):
+		return DEFAULT_LASER_MIND_DIR
+	return "res://Levels/"
+
+static func get_tres_pattern() -> String:
+	if DirAccess.dir_exists_absolute(DEFAULT_LASER_MIND_DIR) and not ProjectSettings.has_setting("laser_editor/paths/levels_directory"):
+		return LASER_TRES_PATTERN
+	return get_levels_dir() + "Level_%03d.tres"
+
+static func get_json_pattern() -> String:
+	if DirAccess.dir_exists_absolute(DEFAULT_LASER_MIND_DIR) and not ProjectSettings.has_setting("laser_editor/paths/levels_directory"):
+		return LASER_JSON_PATTERN
+	return get_levels_dir() + "Level_%03d.json"
+
 static func ensure_directories() -> void:
-	if not DirAccess.dir_exists_absolute("res://Game/Data/LaserMindLevels/"):
-		DirAccess.make_dir_recursive_absolute("res://Game/Data/LaserMindLevels/")
+	var dir := get_levels_dir()
+	if not DirAccess.dir_exists_absolute(dir):
+		DirAccess.make_dir_recursive_absolute(dir)
 
 static func load_laser_level(level_id: int) -> LaserLevelData:
 	ensure_directories()
-	var path_tres := LASER_TRES_PATTERN % level_id
-	var path_json := LASER_JSON_PATTERN % level_id
+	var path_tres := get_tres_pattern() % level_id
+	var path_json := get_json_pattern() % level_id
 
 	var tres_exists := ResourceLoader.exists(path_tres)
 	var json_exists := FileAccess.file_exists(path_json)
@@ -94,7 +118,7 @@ static func save_laser_level_tres(lvl: LaserLevelData, custom_path: String = "")
 	lvl.ensure_three_stages()
 	var path = custom_path
 	if path.is_empty():
-		path = LASER_TRES_PATTERN % lvl.level_id
+		path = get_tres_pattern() % lvl.level_id
 	return ResourceSaver.save(lvl, path)
 
 static func export_laser_level_json(lvl: LaserLevelData, custom_path: String = "") -> Error:
@@ -104,7 +128,7 @@ static func export_laser_level_json(lvl: LaserLevelData, custom_path: String = "
 	lvl.ensure_three_stages()
 	var path = custom_path
 	if path.is_empty():
-		path = LASER_JSON_PATTERN % lvl.level_id
+		path = get_json_pattern() % lvl.level_id
 	var file = FileAccess.open(path, FileAccess.WRITE)
 	if file == null:
 		return FileAccess.get_open_error()
@@ -117,7 +141,7 @@ static func get_all_level_ids() -> Array[int]:
 	ensure_directories()
 	var ids: Dictionary = {}
 
-	var dir = DirAccess.open("res://Game/Data/LaserMindLevels/")
+	var dir = DirAccess.open(get_levels_dir())
 	if dir != null:
 		dir.list_dir_begin()
 		var fname = dir.get_next()
@@ -129,17 +153,18 @@ static func get_all_level_ids() -> Array[int]:
 			fname = dir.get_next()
 		dir.list_dir_end()
 
-	var leg_dir = DirAccess.open("res://Game/Data/Levels/")
-	if leg_dir != null:
-		leg_dir.list_dir_begin()
-		var fname = leg_dir.get_next()
-		while not fname.is_empty():
-			if not leg_dir.current_is_dir() and fname.ends_with(".tres"):
-				var num = _extract_number(fname)
-				if num > 0:
-					ids[num] = true
-			fname = leg_dir.get_next()
-		leg_dir.list_dir_end()
+	if DirAccess.dir_exists_absolute(DEFAULT_LEGACY_DIR):
+		var leg_dir = DirAccess.open(DEFAULT_LEGACY_DIR)
+		if leg_dir != null:
+			leg_dir.list_dir_begin()
+			var fname = leg_dir.get_next()
+			while not fname.is_empty():
+				if not leg_dir.current_is_dir() and fname.ends_with(".tres"):
+					var num = _extract_number(fname)
+					if num > 0:
+						ids[num] = true
+				fname = leg_dir.get_next()
+			leg_dir.list_dir_end()
 
 	var result: Array[int] = []
 	for k in ids.keys():

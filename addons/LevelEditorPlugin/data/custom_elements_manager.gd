@@ -1,12 +1,23 @@
 @tool
 class_name CustomElementsManager
 
-const SAVE_PATH: String = "res://Game/Data/custom_elements.json"
+const DEFAULT_SAVE_PATH: String = "res://Game/Data/custom_elements.json"
+const FALLBACK_SAVE_PATH: String = "user://custom_elements.json"
+
+static func get_save_path() -> String:
+	if ProjectSettings.has_setting("laser_editor/paths/custom_elements_path"):
+		var custom_p: String = str(ProjectSettings.get_setting("laser_editor/paths/custom_elements_path", "")).strip_edges()
+		if not custom_p.is_empty():
+			return custom_p
+	if FileAccess.file_exists(DEFAULT_SAVE_PATH) or DirAccess.dir_exists_absolute("res://Game/Data/"):
+		return DEFAULT_SAVE_PATH
+	return FALLBACK_SAVE_PATH
 
 static func load_elements() -> Array[Dictionary]:
 	var elements: Array[Dictionary] = []
-	if FileAccess.file_exists(SAVE_PATH):
-		var file = FileAccess.open(SAVE_PATH, FileAccess.READ)
+	var path := get_save_path()
+	if FileAccess.file_exists(path):
+		var file = FileAccess.open(path, FileAccess.READ)
 		if file != null:
 			var text = file.get_as_text()
 			file.close()
@@ -24,9 +35,10 @@ static func load_elements() -> Array[Dictionary]:
 	return elements
 
 static func save_elements(elements: Array[Dictionary]) -> void:
+	var path := get_save_path()
 	if elements.is_empty():
-		if FileAccess.file_exists(SAVE_PATH):
-			DirAccess.remove_absolute(SAVE_PATH)
+		if FileAccess.file_exists(path):
+			DirAccess.remove_absolute(path)
 		return
 
 	var raw_arr: Array = []
@@ -39,10 +51,10 @@ static func save_elements(elements: Array[Dictionary]) -> void:
 			"color": e.get("color", Color.ORANGE).to_html(false),
 			"index": i
 		})
-	var dir = SAVE_PATH.get_base_dir()
-	if not DirAccess.dir_exists_absolute(dir):
+	var dir = path.get_base_dir()
+	if not dir.is_empty() and not DirAccess.dir_exists_absolute(dir):
 		DirAccess.make_dir_recursive_absolute(dir)
-	var file = FileAccess.open(SAVE_PATH, FileAccess.WRITE)
+	var file = FileAccess.open(path, FileAccess.WRITE)
 	if file != null:
 		file.store_string(JSON.stringify(raw_arr, "\t"))
 		file.close()

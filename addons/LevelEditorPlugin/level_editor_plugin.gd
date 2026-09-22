@@ -7,7 +7,8 @@ func _enter_tree() -> void:
 	if not Engine.is_editor_hint():
 		return
 
-	main_panel_instance = preload("res://addons/LevelEditorPlugin/ui/editor_main.gd").new()
+	var scene: PackedScene = preload("res://addons/LevelEditorPlugin/scenes/editor_main.tscn")
+	main_panel_instance = scene.instantiate() as Control
 	main_panel_instance.name = "Laser Mind Editor"
 	main_panel_instance.set_anchors_preset(Control.PRESET_FULL_RECT)
 	main_panel_instance.size_flags_horizontal = Control.SIZE_EXPAND_FILL

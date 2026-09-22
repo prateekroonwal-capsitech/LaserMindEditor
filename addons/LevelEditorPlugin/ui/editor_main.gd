@@ -10,7 +10,6 @@ var top_bar: PanelContainer
 var stage_tabs: StageTabs
 var grid_canvas: GridCanvas
 var object_palette: ObjectPalette
-var board_tile_palette: BoardTilePalette
 var inspector_panel: InspectorPanel
 var bottom_panel: BottomPanel
 var level_browser: LevelBrowser
@@ -198,19 +197,6 @@ func _setup_ui() -> void:
 	object_palette.custom_element_selected.connect(_on_custom_element_selected)
 	left_tabs.add_child(object_palette)
 
-	board_tile_palette = BoardTilePalette.new()
-	board_tile_palette.name = "Board Tiles"
-	board_tile_palette.tile_selected.connect(_on_board_tile_selected)
-	board_tile_palette.tool_mode_requested.connect(_on_board_tile_tool_mode_requested)
-	board_tile_palette.board_settings_changed.connect(_on_stage_content_changed)
-	board_tile_palette.request_redraw.connect(func():
-		if grid_canvas != null:
-			grid_canvas.queue_redraw()
-		if inspector_panel != null and current_level != null:
-			inspector_panel.set_stage(current_level.get_stage(current_stage_idx))
-	)
-	left_tabs.add_child(board_tile_palette)
-
 	level_browser = LevelBrowser.new()
 	level_browser.name = "Browser"
 	level_browser.level_opened.connect(_on_level_opened)
@@ -242,6 +228,9 @@ func _setup_ui() -> void:
 	grid_canvas.object_modified.connect(_on_canvas_object_modified)
 	grid_canvas.stage_dirty_needed.connect(_on_stage_content_changed)
 	grid_canvas.stage_activated.connect(_on_canvas_stage_activated)
+	grid_canvas.cell_visual_selected.connect(_on_cell_visual_selected)
+	grid_canvas.border_visual_selected.connect(_on_border_visual_selected)
+	grid_canvas.corner_visual_selected.connect(_on_corner_visual_selected)
 	grid_canvas.undo_manager = undo_manager
 	center_vsplit.add_child(grid_canvas)
 
@@ -260,6 +249,14 @@ func _setup_ui() -> void:
 	inspector_panel.stage_settings_changed.connect(_on_stage_settings_changed)
 	inspector_panel.tile_paint_selected.connect(_on_board_tile_selected)
 	inspector_panel.tile_tool_mode_requested.connect(_on_board_tile_tool_mode_requested)
+	inspector_panel.cell_visual_paint_selected.connect(_on_cell_visual_paint_selected)
+	inspector_panel.cell_visual_modified.connect(_on_cell_visual_modified)
+	inspector_panel.border_visual_paint_selected.connect(_on_border_visual_paint_selected)
+	inspector_panel.border_erase_selected.connect(_on_border_erase_selected)
+	inspector_panel.border_visual_modified.connect(_on_border_visual_modified)
+	inspector_panel.corner_visual_paint_selected.connect(_on_corner_visual_paint_selected)
+	inspector_panel.corner_erase_selected.connect(_on_corner_erase_selected)
+	inspector_panel.corner_visual_modified.connect(_on_corner_visual_modified)
 	inspector_panel.level_settings_changed.connect(_on_level_settings_changed)
 	inspector_panel.request_delete_selected.connect(_delete_selected_objects)
 	inspector_panel.request_duplicate_selected.connect(_duplicate_selected_objects)
@@ -288,7 +285,7 @@ func _setup_ui() -> void:
 	open_file_dialog = FileDialog.new()
 	open_file_dialog.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	open_file_dialog.access = FileDialog.ACCESS_RESOURCES
-	open_file_dialog.current_dir = "res://Game/Data/LaserMindLevels/"
+	open_file_dialog.current_dir = LevelMigration.get_levels_dir()
 	open_file_dialog.filters = PackedStringArray(["*.tres ; Laser Level Resource", "*.json ; Laser Level JSON"])
 	open_file_dialog.file_selected.connect(_on_level_file_selected)
 	add_child(open_file_dialog)
@@ -393,8 +390,6 @@ func _activate_stage(stage_idx: int, refit_view: bool = true) -> void:
 				grid_canvas.zoom_to_fit()
 	if inspector_panel != null:
 		inspector_panel.set_stage(st)
-	if board_tile_palette != null:
-		board_tile_palette.set_stage(st)
 	_run_analysis_and_validation()
 
 func _on_canvas_stage_activated(idx: int) -> void:
@@ -408,8 +403,6 @@ func _on_canvas_stage_activated(idx: int) -> void:
 		var st = current_level.get_stage(idx)
 		if inspector_panel != null:
 			inspector_panel.set_stage(st)
-		if board_tile_palette != null:
-			board_tile_palette.set_stage(st)
 	_run_analysis_and_validation()
 
 func _update_title() -> void:
@@ -512,13 +505,13 @@ func _on_stage_settings_changed(st: LaserStageData) -> void:
 	grid_canvas.queue_redraw()
 	if stage_tabs != null:
 		stage_tabs._update_flow_text()
-	if board_tile_palette != null:
-		board_tile_palette.set_stage(st)
 	_on_stage_content_changed()
 
 func _on_board_tile_selected(tile_coord: Vector2i) -> void:
 	if grid_canvas != null:
 		grid_canvas.active_tile_coord = tile_coord
+		grid_canvas.active_tile_type = clampi(tile_coord.x, 0, 2) as BoardVisualGenerator.TileType
+		grid_canvas.active_tile_rot = tile_coord.y
 		grid_canvas.current_tool = GridCanvas.ToolMode.TILE_PAINT
 		grid_canvas.queue_redraw()
 
@@ -526,6 +519,66 @@ func _on_board_tile_tool_mode_requested(mode: int) -> void:
 	if grid_canvas != null:
 		grid_canvas.current_tool = mode as GridCanvas.ToolMode
 		grid_canvas.queue_redraw()
+
+func _on_cell_visual_selected(stage: LaserStageData, cell: Vector2i, visual_data: Dictionary) -> void:
+	if inspector_panel != null:
+		inspector_panel.inspect_cell_visual(stage, cell, visual_data)
+
+func _on_cell_visual_paint_selected(asset: String, rot_deg: float) -> void:
+	if grid_canvas != null:
+		grid_canvas.active_cell_asset = asset
+		grid_canvas.active_tile_rot_float = rot_deg
+		grid_canvas.current_tool = GridCanvas.ToolMode.TILE_PAINT
+		grid_canvas.queue_redraw()
+
+func _on_cell_visual_modified(stage: LaserStageData, cell: Vector2i, asset: String, rot_deg: float) -> void:
+	if grid_canvas != null:
+		grid_canvas.queue_redraw()
+	_on_stage_content_changed()
+
+func _on_border_visual_selected(stage: LaserStageData, side: String, index: int, visual_data: Dictionary) -> void:
+	if inspector_panel != null:
+		inspector_panel.inspect_border_visual(stage, side, index, visual_data)
+
+func _on_border_visual_paint_selected(asset: String, rot_deg: float) -> void:
+	if grid_canvas != null:
+		grid_canvas.active_border_asset = asset
+		grid_canvas.active_border_rot = rot_deg
+		grid_canvas.current_tool = GridCanvas.ToolMode.BORDER_PAINT
+		grid_canvas.queue_redraw()
+
+func _on_border_erase_selected() -> void:
+	if grid_canvas != null:
+		grid_canvas.current_tool = GridCanvas.ToolMode.BORDER_ERASE
+		grid_canvas.queue_redraw()
+
+func _on_border_visual_modified(_stage: LaserStageData, _side: String, _index: int, _asset: String, _rot_deg: float) -> void:
+	if grid_canvas != null:
+		grid_canvas.queue_redraw()
+	_on_stage_content_changed()
+
+func _on_corner_visual_selected(stage: LaserStageData, corner: String, visual_data: Dictionary) -> void:
+	if inspector_panel != null:
+		inspector_panel.inspect_corner_visual(stage, corner, visual_data)
+
+func _on_corner_visual_paint_selected(asset: String, rot_deg: float, mx: bool, my: bool) -> void:
+	if grid_canvas != null:
+		grid_canvas.active_corner_asset = asset
+		grid_canvas.active_corner_rot = rot_deg
+		grid_canvas.active_corner_mirror_x = mx
+		grid_canvas.active_corner_mirror_y = my
+		grid_canvas.current_tool = GridCanvas.ToolMode.CORNER_PAINT
+		grid_canvas.queue_redraw()
+
+func _on_corner_erase_selected() -> void:
+	if grid_canvas != null:
+		grid_canvas.current_tool = GridCanvas.ToolMode.CORNER_ERASE
+		grid_canvas.queue_redraw()
+
+func _on_corner_visual_modified(_stage: LaserStageData, _corner: String, _asset: String, _rot_deg: float, _mx: bool, _my: bool) -> void:
+	if grid_canvas != null:
+		grid_canvas.queue_redraw()
+	_on_stage_content_changed()
 
 func _on_level_settings_changed(lvl: LaserLevelData) -> void:
 	_on_stage_content_changed()
@@ -586,10 +639,10 @@ func _on_play_real_game_pressed() -> void:
 		file.store_string(JSON.stringify(session_data, "\t"))
 		file.close()
 
-	_sync_gameplay_tscn_level_number(current_level.level_id)
-
-	if Engine.is_editor_hint() and EditorInterface != null:
-		EditorInterface.play_custom_scene("res://Game/GamePlay.tscn")
+	var target_scene := _get_playtest_scene_path()
+	if not target_scene.is_empty() and ResourceLoader.exists(target_scene) and Engine.is_editor_hint() and EditorInterface != null:
+		_sync_gameplay_tscn_level_number(current_level.level_id)
+		EditorInterface.play_custom_scene(target_scene)
 	else:
 		playtest_dialog.start_playtest(current_level)
 
@@ -766,7 +819,7 @@ func _on_open_menu_item_selected(id: int) -> void:
 
 func _open_file_picker() -> void:
 	if open_file_dialog != null:
-		open_file_dialog.current_dir = "res://Game/Data/LaserMindLevels/"
+		open_file_dialog.current_dir = LevelMigration.get_levels_dir()
 		open_file_dialog.popup_centered_ratio(0.7)
 
 func _on_level_file_selected(path: String) -> void:
@@ -848,17 +901,26 @@ func _on_snap_stage_position_requested() -> void:
 	inspector_panel.snap_stage_position_from_canvas(origin)
 	print("📌 Stage %d position snapped to (%.0f, %.0f)" % [stage_idx, origin.x, origin.y])
 
+func _get_playtest_scene_path() -> String:
+	if ProjectSettings.has_setting("laser_editor/paths/gameplay_scene_path"):
+		var p: String = ProjectSettings.get_setting("laser_editor/paths/gameplay_scene_path")
+		if ResourceLoader.exists(p) or FileAccess.file_exists(ProjectSettings.globalize_path(p)):
+			return p
+	if ResourceLoader.exists("res://Game/GamePlay.tscn") or FileAccess.file_exists(ProjectSettings.globalize_path("res://Game/GamePlay.tscn")):
+		return "res://Game/GamePlay.tscn"
+	return ""
+
 func _sync_gameplay_tscn_level_number(level_id: int) -> void:
-	var tscn_path := "res://Game/GamePlay.tscn"
+	var tscn_path := _get_playtest_scene_path()
+	if tscn_path.is_empty():
+		return
 	var abs_path := ProjectSettings.globalize_path(tscn_path)
 
 	if not FileAccess.file_exists(abs_path):
-		push_warning("_sync_gameplay_tscn: GamePlay.tscn not found at %s" % abs_path)
 		return
 
 	var file_r := FileAccess.open(abs_path, FileAccess.READ)
 	if file_r == null:
-		push_warning("_sync_gameplay_tscn: Cannot open GamePlay.tscn for reading")
 		return
 	var content := file_r.get_as_text()
 	file_r.close()
@@ -877,7 +939,6 @@ func _sync_gameplay_tscn_level_number(level_id: int) -> void:
 				"level_number = %d\nscript = ExtResource" % level_id
 			)
 		else:
-			push_warning("_sync_gameplay_tscn: Could not find insertion point")
 			return
 
 	if new_content == content:
@@ -885,7 +946,6 @@ func _sync_gameplay_tscn_level_number(level_id: int) -> void:
 
 	var file_w := FileAccess.open(abs_path, FileAccess.WRITE)
 	if file_w == null:
-		push_warning("_sync_gameplay_tscn: Cannot open GamePlay.tscn for writing")
 		return
 	file_w.store_string(new_content)
 	file_w.close()
@@ -893,4 +953,4 @@ func _sync_gameplay_tscn_level_number(level_id: int) -> void:
 	if Engine.is_editor_hint() and is_instance_valid(EditorInterface):
 		EditorInterface.get_resource_filesystem().scan()
 
-	print("✅ GamePlay.tscn: level_number updated to Level %d" % level_id)
+	print("✅ Playtest scene level_number updated to Level %d" % level_id)
