@@ -540,10 +540,13 @@ func _on_border_visual_selected(stage: LaserStageData, side: String, index: int,
 	if inspector_panel != null:
 		inspector_panel.inspect_border_visual(stage, side, index, visual_data)
 
-func _on_border_visual_paint_selected(asset: String, rot_deg: float) -> void:
+func _on_border_visual_paint_selected(asset: String, rot_deg: float, offset: float = 0.0, scale_x: float = 1.0, scale_y: float = 1.0) -> void:
 	if grid_canvas != null:
 		grid_canvas.active_border_asset = asset
 		grid_canvas.active_border_rot = rot_deg
+		grid_canvas.active_border_offset = offset
+		grid_canvas.active_border_scale_x = scale_x
+		grid_canvas.active_border_scale_y = scale_y
 		grid_canvas.current_tool = GridCanvas.ToolMode.BORDER_PAINT
 		grid_canvas.queue_redraw()
 
@@ -552,7 +555,7 @@ func _on_border_erase_selected() -> void:
 		grid_canvas.current_tool = GridCanvas.ToolMode.BORDER_ERASE
 		grid_canvas.queue_redraw()
 
-func _on_border_visual_modified(_stage: LaserStageData, _side: String, _index: int, _asset: String, _rot_deg: float) -> void:
+func _on_border_visual_modified(_stage: LaserStageData, _side: String, _index: int, _asset: String, _rot_deg: float, _offset: float = 0.0, _scale_x: float = 1.0, _scale_y: float = 1.0) -> void:
 	if grid_canvas != null:
 		grid_canvas.queue_redraw()
 	_on_stage_content_changed()
@@ -561,12 +564,15 @@ func _on_corner_visual_selected(stage: LaserStageData, corner: String, visual_da
 	if inspector_panel != null:
 		inspector_panel.inspect_corner_visual(stage, corner, visual_data)
 
-func _on_corner_visual_paint_selected(asset: String, rot_deg: float, mx: bool, my: bool) -> void:
+func _on_corner_visual_paint_selected(asset: String, rot_deg: float, mx: bool, my: bool, offset: float = 0.0, scale_x: float = 1.0, scale_y: float = 1.0) -> void:
 	if grid_canvas != null:
 		grid_canvas.active_corner_asset = asset
 		grid_canvas.active_corner_rot = rot_deg
 		grid_canvas.active_corner_mirror_x = mx
 		grid_canvas.active_corner_mirror_y = my
+		grid_canvas.active_corner_offset = offset
+		grid_canvas.active_corner_scale_x = scale_x
+		grid_canvas.active_corner_scale_y = scale_y
 		grid_canvas.current_tool = GridCanvas.ToolMode.CORNER_PAINT
 		grid_canvas.queue_redraw()
 
@@ -575,7 +581,7 @@ func _on_corner_erase_selected() -> void:
 		grid_canvas.current_tool = GridCanvas.ToolMode.CORNER_ERASE
 		grid_canvas.queue_redraw()
 
-func _on_corner_visual_modified(_stage: LaserStageData, _corner: String, _asset: String, _rot_deg: float, _mx: bool, _my: bool) -> void:
+func _on_corner_visual_modified(_stage: LaserStageData, _corner: String, _asset: String, _rot_deg: float, _mx: bool, _my: bool, _offset: float = 0.0, _scale_x: float = 1.0, _scale_y: float = 1.0) -> void:
 	if grid_canvas != null:
 		grid_canvas.queue_redraw()
 	_on_stage_content_changed()

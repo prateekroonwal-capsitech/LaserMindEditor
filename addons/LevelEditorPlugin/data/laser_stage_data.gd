@@ -223,13 +223,16 @@ func remove_corner_asset(asset_id: String) -> bool:
 	return false
 
 # --- Outer Perimeter Border Painting API ---
-func set_border_visual(side: String, index: int, asset_id: String, rot_deg: float) -> void:
+func set_border_visual(side: String, index: int, asset_id: String, rot_deg: float = 0.0, offset: float = 0.0, scale_x: float = 1.0, scale_y: float = 1.0) -> void:
 	var key := "%s,%d" % [side.to_lower(), index]
 	border_visuals[key] = {
 		"side": side.to_lower(),
 		"index": int(index),
 		"asset": str(asset_id),
-		"rotation": float(rot_deg)
+		"rotation": float(rot_deg),
+		"offset": float(offset),
+		"scale_x": float(scale_x),
+		"scale_y": float(scale_y)
 	}
 
 func get_border_visual(side: String, index: int) -> Dictionary:
@@ -237,11 +240,16 @@ func get_border_visual(side: String, index: int) -> Dictionary:
 	if border_visuals.has(key):
 		var v = border_visuals[key]
 		if v is Dictionary:
+			var sx := float(v.get("scale_x", v.get("scale", 1.0)))
+			var sy := float(v.get("scale_y", v.get("scale", 1.0)))
 			return {
 				"side": side.to_lower(),
 				"index": int(index),
 				"asset": str(v.get("asset", "")),
-				"rotation": float(v.get("rotation", 0.0))
+				"rotation": float(v.get("rotation", 0.0)),
+				"offset": float(v.get("offset", 0.0)),
+				"scale_x": sx,
+				"scale_y": sy
 			}
 	return {}
 
@@ -260,14 +268,17 @@ func get_border_visuals_count() -> int:
 	return border_visuals.size()
 
 # --- Outer Perimeter Corner Painting API ---
-func set_corner_visual(corner: String, asset_id: String, rot_deg: float, mirror_x: bool = false, mirror_y: bool = false) -> void:
+func set_corner_visual(corner: String, asset_id: String, rot_deg: float = 0.0, mirror_x: bool = false, mirror_y: bool = false, offset: float = 0.0, scale_x: float = 1.0, scale_y: float = 1.0) -> void:
 	var key := corner.to_lower()
 	corner_visuals[key] = {
 		"corner": key,
 		"asset": str(asset_id),
 		"rotation": float(rot_deg),
 		"mirror_x": bool(mirror_x),
-		"mirror_y": bool(mirror_y)
+		"mirror_y": bool(mirror_y),
+		"offset": float(offset),
+		"scale_x": float(scale_x),
+		"scale_y": float(scale_y)
 	}
 
 func get_corner_visual(corner: String) -> Dictionary:
@@ -275,12 +286,17 @@ func get_corner_visual(corner: String) -> Dictionary:
 	if corner_visuals.has(key):
 		var v = corner_visuals[key]
 		if v is Dictionary:
+			var sx := float(v.get("scale_x", v.get("scale", 1.0)))
+			var sy := float(v.get("scale_y", v.get("scale", 1.0)))
 			return {
 				"corner": key,
 				"asset": str(v.get("asset", "")),
 				"rotation": float(v.get("rotation", 0.0)),
 				"mirror_x": bool(v.get("mirror_x", false)),
-				"mirror_y": bool(v.get("mirror_y", false))
+				"mirror_y": bool(v.get("mirror_y", false)),
+				"offset": float(v.get("offset", 0.0)),
+				"scale_x": sx,
+				"scale_y": sy
 			}
 	return {}
 
@@ -678,11 +694,36 @@ static func from_dict(d: Dictionary) -> LaserStageData:
 		st.border_corner_path = str(bs.get("corner", st.border_corner_path))
 
 	# 3-Library Visual Assets & Placement Deserialization
-	st.cell_assets = d.get("cell_assets", []).duplicate(true)
-	st.border_assets = d.get("border_assets", []).duplicate(true)
-	st.corner_assets = d.get("corner_assets", []).duplicate(true)
+	st.cell_assets.clear()
+	for ca in d.get("cell_assets", []):
+		if ca is Dictionary:
+			st.cell_assets.append(ca.duplicate(true))
+	st.border_assets.clear()
+	for ba in d.get("border_assets", []):
+		if ba is Dictionary:
+			st.border_assets.append(ba.duplicate(true))
+	st.corner_assets.clear()
+	for coa in d.get("corner_assets", []):
+		if coa is Dictionary:
+			st.corner_assets.append(coa.duplicate(true))
 	st.border_visuals = d.get("border_visuals", {}).duplicate(true)
+	for k in st.border_visuals.keys():
+		var bv = st.border_visuals[k]
+		if bv is Dictionary:
+			var sc = float(bv.get("scale", 1.0))
+			if not bv.has("scale_x"):
+				bv["scale_x"] = sc
+			if not bv.has("scale_y"):
+				bv["scale_y"] = sc
 	st.corner_visuals = d.get("corner_visuals", {}).duplicate(true)
+	for k in st.corner_visuals.keys():
+		var cv = st.corner_visuals[k]
+		if cv is Dictionary:
+			var sc = float(cv.get("scale", 1.0))
+			if not cv.has("scale_x"):
+				cv["scale_x"] = sc
+			if not cv.has("scale_y"):
+				cv["scale_y"] = sc
 	st.ensure_default_visual_libraries()
 
 	# If cell_visuals is empty but custom_tiles has items, populate cell_visuals

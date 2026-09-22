@@ -27,7 +27,7 @@ color = Color(0.2, 0.65, 1, 1)
 [sub_resource type="Resource" id="Resource_uqhes"]
 script = ExtResource("3_rvopn")
 id = "fmir_5454"
-grid_pos = Vector2i(1, 7)
+grid_pos = Vector2i(1, 8)
 color = Color(0.2, 0.65, 1, 1)
 
 [sub_resource type="Resource" id="Resource_qvm2o"]
@@ -143,27 +143,144 @@ type = 4
 grid_pos = Vector2i(2, 8)
 color = Color(0.2, 0.65, 1, 1)
 
+[sub_resource type="Resource" id="Resource_6kvby"]
+script = ExtResource("3_rvopn")
+id = "cwall_8506"
+type = 10
+grid_pos = Vector2i(7, 9)
+color = Color(0.2, 0.65, 1, 1)
+
 [sub_resource type="Resource" id="Resource_qdb8q"]
 script = ExtResource("2_lqunb")
 grid_width = 8
 grid_height = 10
 time_limit = 15.0
-objects = Array[ExtResource("3_rvopn")]([SubResource("Resource_akk5v"), SubResource("Resource_3e577"), SubResource("Resource_f50j8"), SubResource("Resource_uqhes"), SubResource("Resource_qvm2o"), SubResource("Resource_bmu8x"), SubResource("Resource_fba74"), SubResource("Resource_k3xwo"), SubResource("Resource_goag4"), SubResource("Resource_fp0n3"), SubResource("Resource_7775g"), SubResource("Resource_d2hnd"), SubResource("Resource_uxk28"), SubResource("Resource_a6map"), SubResource("Resource_grm3h"), SubResource("Resource_7pbvy"), SubResource("Resource_5bl3u"), SubResource("Resource_75w37"), SubResource("Resource_ov4tk"), SubResource("Resource_bxig8")])
+objects = Array[ExtResource("3_rvopn")]([SubResource("Resource_akk5v"), SubResource("Resource_3e577"), SubResource("Resource_f50j8"), SubResource("Resource_uqhes"), SubResource("Resource_qvm2o"), SubResource("Resource_bmu8x"), SubResource("Resource_fba74"), SubResource("Resource_k3xwo"), SubResource("Resource_goag4"), SubResource("Resource_fp0n3"), SubResource("Resource_7775g"), SubResource("Resource_d2hnd"), SubResource("Resource_uxk28"), SubResource("Resource_a6map"), SubResource("Resource_grm3h"), SubResource("Resource_7pbvy"), SubResource("Resource_5bl3u"), SubResource("Resource_75w37"), SubResource("Resource_ov4tk"), SubResource("Resource_bxig8"), SubResource("Resource_6kvby")])
 cell_assets = Array[Dictionary]([{
 "id": "cell_1",
-"name": "ColorGlass.svg",
-"path": "res://Game/Assets/Sprites/ColorGlass.svg"
+"name": "ChatGPT3.png",
+"path": "res://Game/Assets/Board/ChatGPT3.png"
 }])
 border_assets = Array[Dictionary]([{
-"id": "border_1",
-"name": "board.png",
-"path": "res://Game/Assets/Board/board.png"
+"id": "border_2",
+"name": "ChatGPT2.png",
+"path": "res://Game/Assets/Board/ChatGPT2.png"
 }])
 corner_assets = Array[Dictionary]([{
 "id": "corner_1",
+"name": "ChatGPT1.png",
+"path": "res://Game/Assets/Board/ChatGPT1.png"
+}, {
+"id": "corner_2",
 "name": "icon.svg",
 "path": "res://icon.svg"
 }])
+border_visuals = {
+"bottom,0": {
+"asset": "border_1",
+"index": 0,
+"offset": -10.0,
+"rotation": 90.0,
+"scale_x": 0.084,
+"scale_y": 0.084,
+"side": "bottom"
+},
+"bottom,1": {
+"asset": "border_1",
+"index": 1,
+"offset": -10.0,
+"rotation": 90.0,
+"scale_x": 0.084,
+"scale_y": 0.084,
+"side": "bottom"
+},
+"bottom,2": {
+"asset": "border_1",
+"index": 2,
+"offset": -10.0,
+"rotation": 90.0,
+"scale_x": 0.084,
+"scale_y": 0.084,
+"side": "bottom"
+},
+"bottom,3": {
+"asset": "border_1",
+"index": 3,
+"offset": -10.0,
+"rotation": 90.0,
+"scale_x": 0.084,
+"scale_y": 0.084,
+"side": "bottom"
+},
+"bottom,4": {
+"asset": "border_1",
+"index": 4,
+"offset": -10.0,
+"rotation": 90.0,
+"scale_x": 0.084,
+"scale_y": 0.084,
+"side": "bottom"
+},
+"bottom,5": {
+"asset": "border_1",
+"index": 5,
+"offset": -10.0,
+"rotation": 90.0,
+"scale_x": 0.084,
+"scale_y": 0.084,
+"side": "bottom"
+},
+"bottom,6": {
+"asset": "border_1",
+"index": 6,
+"offset": -10.0,
+"rotation": 90.0,
+"scale_x": 0.084,
+"scale_y": 0.084,
+"side": "bottom"
+},
+"bottom,7": {
+"asset": "border_1",
+"index": 7,
+"offset": -10.0,
+"rotation": 90.0,
+"scale_x": 0.084,
+"scale_y": 0.084,
+"side": "bottom"
+}
+}
+corner_visuals = {
+"bottom_left": {
+"asset": "corner_2",
+"corner": "bottom_left",
+"mirror_x": false,
+"mirror_y": false,
+"offset": 0.0,
+"rotation": 0.0,
+"scale_x": 1.0,
+"scale_y": 1.0
+},
+"bottom_right": {
+"asset": "<null>",
+"corner": "bottom_right",
+"mirror_x": false,
+"mirror_y": false,
+"offset": 0.0,
+"rotation": 0.0,
+"scale_x": 1.0,
+"scale_y": 1.0
+},
+"top_right": {
+"asset": "corner_1",
+"corner": "top_right",
+"mirror_x": false,
+"mirror_y": false,
+"offset": 0.0,
+"rotation": 0.0,
+"scale_x": 0.2,
+"scale_y": 0.2
+}
+}
 
 [sub_resource type="Resource" id="Resource_qtqw8"]
 script = ExtResource("3_rvopn")
@@ -172,18 +289,128 @@ type = 11
 grid_pos = Vector2i(0, 2)
 color = Color(0.2, 0.65, 1, 1)
 
+[sub_resource type="Resource" id="Resource_pkkp5"]
+script = ExtResource("3_rvopn")
+id = "marea_5437"
+type = 4
+grid_pos = Vector2i(3, 2)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_giv2s"]
+script = ExtResource("3_rvopn")
+id = "marea_4874"
+type = 4
+grid_pos = Vector2i(4, 2)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_tgdr1"]
+script = ExtResource("3_rvopn")
+id = "marea_1078"
+type = 4
+grid_pos = Vector2i(5, 2)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_el24f"]
+script = ExtResource("3_rvopn")
+id = "marea_0506"
+type = 4
+grid_pos = Vector2i(6, 2)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_t7f4a"]
+script = ExtResource("3_rvopn")
+id = "fmir_6039"
+grid_pos = Vector2i(5, 2)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_uj6r7"]
+script = ExtResource("3_rvopn")
+id = "rock_2324"
+type = 6
+grid_pos = Vector2i(4, 4)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_rllmu"]
+script = ExtResource("3_rvopn")
+id = "marea_5462"
+type = 4
+grid_pos = Vector2i(4, 4)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_3r01o"]
+script = ExtResource("3_rvopn")
+id = "marea_3416"
+type = 4
+grid_pos = Vector2i(4, 5)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_dfcft"]
+script = ExtResource("3_rvopn")
+id = "marea_6660"
+type = 4
+grid_pos = Vector2i(5, 5)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_2834d"]
+script = ExtResource("3_rvopn")
+id = "marea_3327"
+type = 4
+grid_pos = Vector2i(6, 5)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_o7bh1"]
+script = ExtResource("3_rvopn")
+id = "split_6457"
+type = 8
+grid_pos = Vector2i(3, 5)
+rotation_deg = 180
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_k1jiv"]
+script = ExtResource("3_rvopn")
+id = "fmir_5896"
+grid_pos = Vector2i(6, 5)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_b864e"]
+script = ExtResource("3_rvopn")
+id = "rmir_9568"
+type = 3
+grid_pos = Vector2i(0, 5)
+rotation_deg = 90
+color = Color(0.2, 0.65, 1, 1)
+rotatable = true
+
+[sub_resource type="Resource" id="Resource_xsh5b"]
+script = ExtResource("3_rvopn")
+id = "switch_5067"
+type = 12
+grid_pos = Vector2i(0, 8)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_6w6n1"]
+script = ExtResource("3_rvopn")
+id = "xgate_0317"
+type = 15
+grid_pos = Vector2i(6, 9)
+color = Color(0.2, 0.65, 1, 1)
+
 [sub_resource type="Resource" id="Resource_lqunb"]
 script = ExtResource("2_lqunb")
 stage_index = 2
 grid_width = 8
 grid_height = 10
 time_limit = 15.0
-objects = Array[ExtResource("3_rvopn")]([SubResource("Resource_qtqw8")])
+objects = Array[ExtResource("3_rvopn")]([SubResource("Resource_qtqw8"), SubResource("Resource_pkkp5"), SubResource("Resource_giv2s"), SubResource("Resource_tgdr1"), SubResource("Resource_el24f"), SubResource("Resource_t7f4a"), SubResource("Resource_uj6r7"), SubResource("Resource_rllmu"), SubResource("Resource_3r01o"), SubResource("Resource_dfcft"), SubResource("Resource_2834d"), SubResource("Resource_o7bh1"), SubResource("Resource_k1jiv"), SubResource("Resource_b864e"), SubResource("Resource_xsh5b"), SubResource("Resource_6w6n1")])
 stage_transition_direction = 2
 cell_assets = Array[Dictionary]([{
 "id": "cell_1",
 "name": "Cell Image 1",
 "path": "res://addons/LevelEditorPlugin/assets/default/cells/demo_cell_01.svg"
+}, {
+"id": "cell_2",
+"name": "ChatGPT Image Sep 22, 2026, 02_06_31 PM 13.png",
+"path": "res://Game/Assets/Board/ChatGPT Image Sep 22, 2026, 02_06_31 PM 13.png"
 }])
 border_assets = Array[Dictionary]([{
 "id": "border_1",
@@ -196,12 +423,119 @@ corner_assets = Array[Dictionary]([{
 "path": "res://addons/LevelEditorPlugin/assets/default/corners/demo_corner_01.svg"
 }])
 
+[sub_resource type="Resource" id="Resource_f5trv"]
+script = ExtResource("3_rvopn")
+id = "gate_1017"
+type = 11
+grid_pos = Vector2i(6, 0)
+rotation_deg = 90
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_npxlo"]
+script = ExtResource("3_rvopn")
+id = "marea_9107"
+type = 4
+grid_pos = Vector2i(6, 2)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_t35g5"]
+script = ExtResource("3_rvopn")
+id = "marea_9209"
+type = 4
+grid_pos = Vector2i(7, 2)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_xfbq3"]
+script = ExtResource("3_rvopn")
+id = "marea_1121"
+type = 4
+grid_pos = Vector2i(3, 2)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_qp1qj"]
+script = ExtResource("3_rvopn")
+id = "marea_3019"
+type = 4
+grid_pos = Vector2i(3, 3)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_wwoxn"]
+script = ExtResource("3_rvopn")
+id = "marea_6092"
+type = 4
+grid_pos = Vector2i(4, 3)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_46yhl"]
+script = ExtResource("3_rvopn")
+id = "marea_1259"
+type = 4
+grid_pos = Vector2i(4, 6)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_1ho52"]
+script = ExtResource("3_rvopn")
+id = "marea_1095"
+type = 4
+grid_pos = Vector2i(4, 7)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_d4lge"]
+script = ExtResource("3_rvopn")
+id = "xgate_4192"
+type = 15
+grid_pos = Vector2i(7, 7)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_g3m4f"]
+script = ExtResource("3_rvopn")
+id = "fmir_3827"
+grid_pos = Vector2i(7, 2)
+rotation_deg = 90
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_5np6a"]
+script = ExtResource("3_rvopn")
+id = "glass_0894"
+type = 9
+grid_pos = Vector2i(3, 3)
+color = Color(1, 0.19999999, 0.19999999, 1)
+
+[sub_resource type="Resource" id="Resource_qlogn"]
+script = ExtResource("3_rvopn")
+id = "fmir_0597"
+grid_pos = Vector2i(1, 2)
+rotation_deg = 90
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_8fpcg"]
+script = ExtResource("3_rvopn")
+id = "fmir_0351"
+grid_pos = Vector2i(1, 7)
+color = Color(0.2, 0.65, 1, 1)
+
+[sub_resource type="Resource" id="Resource_amalj"]
+script = ExtResource("3_rvopn")
+id = "cwall_7886"
+type = 10
+grid_pos = Vector2i(6, 7)
+color = Color(0.35625, 1, 0.19999999, 1)
+
+[sub_resource type="Resource" id="Resource_rmadt"]
+script = ExtResource("3_rvopn")
+id = "glass_9866"
+type = 9
+grid_pos = Vector2i(4, 7)
+color = Color(0.35686275, 1, 0.2, 1)
+
 [sub_resource type="Resource" id="Resource_rvopn"]
 script = ExtResource("2_lqunb")
 stage_index = 3
 grid_width = 8
 grid_height = 10
 time_limit = 15.0
+objects = Array[ExtResource("3_rvopn")]([SubResource("Resource_f5trv"), SubResource("Resource_npxlo"), SubResource("Resource_t35g5"), SubResource("Resource_xfbq3"), SubResource("Resource_qp1qj"), SubResource("Resource_wwoxn"), SubResource("Resource_46yhl"), SubResource("Resource_1ho52"), SubResource("Resource_d4lge"), SubResource("Resource_g3m4f"), SubResource("Resource_5np6a"), SubResource("Resource_qlogn"), SubResource("Resource_8fpcg"), SubResource("Resource_amalj"), SubResource("Resource_rmadt")])
+stage_transition_direction = 4
 cell_assets = Array[Dictionary]([{
 "id": "cell_1",
 "name": "Cell Image 1",

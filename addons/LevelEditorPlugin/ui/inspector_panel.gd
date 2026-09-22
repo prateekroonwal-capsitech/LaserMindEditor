@@ -15,11 +15,11 @@ signal tile_paint_selected(tile_coord: Vector2i)
 signal tile_tool_mode_requested(tool_mode: int)
 signal cell_visual_paint_selected(asset: String, rot_deg: float)
 signal cell_visual_modified(stage: LaserStageData, cell: Vector2i, asset: String, rot_deg: float)
-signal border_visual_paint_selected(asset: String, rot_deg: float)
-signal border_visual_modified(stage: LaserStageData, side: String, index: int, asset: String, rot_deg: float)
+signal border_visual_paint_selected(asset: String, rot_deg: float, offset: float, scale_x: float, scale_y: float)
+signal border_visual_modified(stage: LaserStageData, side: String, index: int, asset: String, rot_deg: float, offset: float, scale_x: float, scale_y: float)
 signal border_erase_selected()
-signal corner_visual_paint_selected(asset: String, rot_deg: float, mirror_x: bool, mirror_y: bool)
-signal corner_visual_modified(stage: LaserStageData, corner: String, asset: String, rot_deg: float, mirror_x: bool, mirror_y: bool)
+signal corner_visual_paint_selected(asset: String, rot_deg: float, mirror_x: bool, mirror_y: bool, offset: float, scale_x: float, scale_y: float)
+signal corner_visual_modified(stage: LaserStageData, corner: String, asset: String, rot_deg: float, mirror_x: bool, mirror_y: bool, offset: float, scale_x: float, scale_y: float)
 signal corner_erase_selected()
 
 const CUSTOM_TYPE_ID_BASE: int = 100
@@ -93,8 +93,14 @@ var current_selected_visual_cell: Vector2i = Vector2i(-1, -1)
 # --- Border Visuals State ---
 var active_border_asset: String = "border_1"
 var active_border_rot: float = 0.0
+var active_border_offset: float = 0.0
+var active_border_scale_x: float = 1.0
+var active_border_scale_y: float = 1.0
 var active_border_opt: OptionButton
 var active_border_rot_spin: SpinBox
+var active_border_offset_spin: SpinBox
+var active_border_scale_x_spin: SpinBox
+var active_border_scale_y_spin: SpinBox
 var border_rot_buttons: Dictionary = {}
 var border_paint_btn: Button
 var border_erase_btn: Button
@@ -105,16 +111,25 @@ var sel_border_box: VBoxContainer
 var sel_border_lbl: Label
 var sel_border_asset_opt: OptionButton
 var sel_border_rot_spin: SpinBox
+var sel_border_offset_spin: SpinBox
+var sel_border_scale_x_spin: SpinBox
+var sel_border_scale_y_spin: SpinBox
 var current_selected_border_side: String = ""
 var current_selected_border_index: int = -1
 
 # --- Corner Visuals State ---
 var active_corner_asset: String = "corner_1"
 var active_corner_rot: float = 0.0
+var active_corner_offset: float = 0.0
+var active_corner_scale_x: float = 1.0
+var active_corner_scale_y: float = 1.0
 var active_corner_mirror_x: bool = false
 var active_corner_mirror_y: bool = false
 var active_corner_opt: OptionButton
 var active_corner_rot_spin: SpinBox
+var active_corner_offset_spin: SpinBox
+var active_corner_scale_x_spin: SpinBox
+var active_corner_scale_y_spin: SpinBox
 var active_corner_mx_chk: CheckBox
 var active_corner_my_chk: CheckBox
 var corner_rot_buttons: Dictionary = {}
@@ -127,9 +142,23 @@ var sel_corner_box: VBoxContainer
 var sel_corner_lbl: Label
 var sel_corner_asset_opt: OptionButton
 var sel_corner_rot_spin: SpinBox
+var sel_corner_offset_spin: SpinBox
+var sel_corner_scale_x_spin: SpinBox
+var sel_corner_scale_y_spin: SpinBox
 var sel_corner_mx_chk: CheckBox
 var sel_corner_my_chk: CheckBox
 var current_selected_corner_name: String = ""
+
+# --- Tiles Sub-Tabs (DEFAULT, BORDERS, CORNERS) ---
+var tile_subtab_bar: HBoxContainer
+var tile_subtab_group: ButtonGroup
+var tile_subtab_default_btn: Button
+var tile_subtab_borders_btn: Button
+var tile_subtab_corners_btn: Button
+var tile_default_box: VBoxContainer
+var tile_borders_box: VBoxContainer
+var tile_corners_box: VBoxContainer
+var current_tiles_subtab: int = 0
 
 # --- 3-Library Visual Asset Model Containers ---
 var cell_assets_container: VBoxContainer
@@ -433,19 +462,59 @@ func _setup_ui() -> void:
 	# --- DEDICATED TILES SECTION (Only shown in '🧩 Tiles' Tab) ---
 	tile_section = _create_section(main_vbox, "TILES")
 
+	# --- Sub-Tabs Bar: DEFAULT | BORDERS | CORNERS ---
+	tile_subtab_bar = HBoxContainer.new()
+	tile_subtab_bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile_subtab_bar.add_theme_constant_override("separation", 2)
+	tile_section.add_child(tile_subtab_bar)
+
+	tile_subtab_group = ButtonGroup.new()
+
+	tile_subtab_default_btn = Button.new()
+	tile_subtab_default_btn.text = "DEFAULT"
+	tile_subtab_default_btn.toggle_mode = true
+	tile_subtab_default_btn.button_group = tile_subtab_group
+	tile_subtab_default_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile_subtab_default_btn.add_theme_font_size_override("font_size", 11)
+	tile_subtab_default_btn.pressed.connect(func(): _switch_tiles_subtab(0))
+	tile_subtab_bar.add_child(tile_subtab_default_btn)
+
+	tile_subtab_borders_btn = Button.new()
+	tile_subtab_borders_btn.text = "BORDERS"
+	tile_subtab_borders_btn.toggle_mode = true
+	tile_subtab_borders_btn.button_group = tile_subtab_group
+	tile_subtab_borders_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile_subtab_borders_btn.add_theme_font_size_override("font_size", 11)
+	tile_subtab_borders_btn.pressed.connect(func(): _switch_tiles_subtab(1))
+	tile_subtab_bar.add_child(tile_subtab_borders_btn)
+
+	tile_subtab_corners_btn = Button.new()
+	tile_subtab_corners_btn.text = "CORNERS"
+	tile_subtab_corners_btn.toggle_mode = true
+	tile_subtab_corners_btn.button_group = tile_subtab_group
+	tile_subtab_corners_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile_subtab_corners_btn.add_theme_font_size_override("font_size", 11)
+	tile_subtab_corners_btn.pressed.connect(func(): _switch_tiles_subtab(2))
+	tile_subtab_bar.add_child(tile_subtab_corners_btn)
+
 	# =========================================================================
-	# 1. CELL IMAGES
+	# TAB 1: DEFAULT (CELL IMAGES)
 	# =========================================================================
+	tile_default_box = VBoxContainer.new()
+	tile_default_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile_default_box.add_theme_constant_override("separation", 6)
+	tile_section.add_child(tile_default_box)
+
 	var cell_vis_hdr := Label.new()
-	cell_vis_hdr.text = "🎨 CELL IMAGES"
-	cell_vis_hdr.add_theme_font_size_override("font_size", 12)
+	cell_vis_hdr.text = "CELL IMAGES"
+	cell_vis_hdr.add_theme_font_size_override("font_size", 11)
 	cell_vis_hdr.modulate = Color(1.0, 0.85, 0.35)
-	tile_section.add_child(cell_vis_hdr)
+	tile_default_box.add_child(cell_vis_hdr)
 
 	cell_assets_container = VBoxContainer.new()
 	cell_assets_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	cell_assets_container.add_theme_constant_override("separation", 4)
-	tile_section.add_child(cell_assets_container)
+	tile_default_box.add_child(cell_assets_container)
 
 	var add_cell_btn := Button.new()
 	add_cell_btn.text = "➕ Add Cell Image"
@@ -459,24 +528,26 @@ func _setup_ui() -> void:
 				_refresh_tiles_ui()
 		)
 	)
-	tile_section.add_child(add_cell_btn)
+	tile_default_box.add_child(add_cell_btn)
+
+	tile_default_box.add_child(HSeparator.new())
 
 	var act_cell_lbl := Label.new()
 	act_cell_lbl.text = "Active Paint Cell:"
 	act_cell_lbl.add_theme_font_size_override("font_size", 11)
 	act_cell_lbl.modulate = Color(0.8, 0.9, 1.0)
-	tile_section.add_child(act_cell_lbl)
+	tile_default_box.add_child(act_cell_lbl)
 
 	active_cell_opt = OptionButton.new()
 	active_cell_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	active_cell_opt.item_selected.connect(_on_active_cell_opt_changed)
-	tile_section.add_child(active_cell_opt)
+	tile_default_box.add_child(active_cell_opt)
 
 	var rot_hdr := Label.new()
 	rot_hdr.text = "Active Paint Rotation:"
 	rot_hdr.add_theme_font_size_override("font_size", 11)
 	rot_hdr.modulate = Color(0.8, 0.9, 1.0)
-	tile_section.add_child(rot_hdr)
+	tile_default_box.add_child(rot_hdr)
 
 	var cell_rot_row := HBoxContainer.new()
 	cell_rot_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -502,7 +573,7 @@ func _setup_ui() -> void:
 		)
 		cell_rot_row.add_child(r_btn)
 		tile_rot_buttons[deg] = r_btn
-	tile_section.add_child(cell_rot_row)
+	tile_default_box.add_child(cell_rot_row)
 
 	var cell_tool_row := HBoxContainer.new()
 	cell_tool_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -521,14 +592,16 @@ func _setup_ui() -> void:
 	tile_erase_btn.tooltip_text = "Activate cell erase mode. Click on grid to remove cell visual."
 	tile_erase_btn.pressed.connect(_on_erase_tile_pressed)
 	cell_tool_row.add_child(tile_erase_btn)
-	tile_section.add_child(cell_tool_row)
+	tile_default_box.add_child(cell_tool_row)
 
 	var clr_cells_btn := Button.new()
 	clr_cells_btn.text = "❌ Clear All Cell Visuals"
 	clr_cells_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	clr_cells_btn.tooltip_text = "Clear all placed cell visuals on this stage"
 	clr_cells_btn.pressed.connect(_on_clear_all_tiles_pressed)
-	tile_section.add_child(clr_cells_btn)
+	tile_default_box.add_child(clr_cells_btn)
+
+	tile_default_box.add_child(HSeparator.new())
 
 	# Selected Cell Visual In-Place Editor
 	sel_cell_box = VBoxContainer.new()
@@ -540,6 +613,12 @@ func _setup_ui() -> void:
 	sel_pnl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var sel_inner := VBoxContainer.new()
 	sel_inner.add_theme_constant_override("separation", 4)
+
+	var sel_cell_hdr := Label.new()
+	sel_cell_hdr.text = "SELECTED CELL"
+	sel_cell_hdr.add_theme_font_size_override("font_size", 10)
+	sel_cell_hdr.modulate = Color(1.0, 0.9, 0.4)
+	sel_inner.add_child(sel_cell_hdr)
 
 	sel_cell_lbl = Label.new()
 	sel_cell_lbl.text = "Selected Cell: (none)"
@@ -584,29 +663,33 @@ func _setup_ui() -> void:
 
 	sel_pnl.add_child(sel_inner)
 	sel_cell_box.add_child(sel_pnl)
-	tile_section.add_child(sel_cell_box)
+	tile_default_box.add_child(sel_cell_box)
 
 	tile_status_lbl = Label.new()
 	tile_status_lbl.add_theme_font_size_override("font_size", 11)
 	tile_status_lbl.modulate = Color(0.85, 0.9, 0.95)
 	tile_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	tile_section.add_child(tile_status_lbl)
-
-	tile_section.add_child(HSeparator.new())
+	tile_default_box.add_child(tile_status_lbl)
 
 	# =========================================================================
-	# 2. BORDER IMAGES & PAINTING
+	# TAB 2: BORDERS (BORDER IMAGES & PAINTING)
 	# =========================================================================
+	tile_borders_box = VBoxContainer.new()
+	tile_borders_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile_borders_box.add_theme_constant_override("separation", 6)
+	tile_borders_box.visible = false
+	tile_section.add_child(tile_borders_box)
+
 	var border_hdr := Label.new()
-	border_hdr.text = "🛡️ BORDER IMAGES"
-	border_hdr.add_theme_font_size_override("font_size", 12)
+	border_hdr.text = "BORDER IMAGES"
+	border_hdr.add_theme_font_size_override("font_size", 11)
 	border_hdr.modulate = Color(0.4, 0.85, 1.0)
-	tile_section.add_child(border_hdr)
+	tile_borders_box.add_child(border_hdr)
 
 	border_assets_container = VBoxContainer.new()
 	border_assets_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	border_assets_container.add_theme_constant_override("separation", 4)
-	tile_section.add_child(border_assets_container)
+	tile_borders_box.add_child(border_assets_container)
 
 	var add_border_btn := Button.new()
 	add_border_btn.text = "➕ Add Border Image"
@@ -620,24 +703,32 @@ func _setup_ui() -> void:
 				_refresh_tiles_ui()
 		)
 	)
-	tile_section.add_child(add_border_btn)
+	tile_borders_box.add_child(add_border_btn)
+
+	tile_borders_box.add_child(HSeparator.new())
+
+	var act_border_sec_lbl := Label.new()
+	act_border_sec_lbl.text = "ACTIVE BORDER"
+	act_border_sec_lbl.add_theme_font_size_override("font_size", 11)
+	act_border_sec_lbl.modulate = Color(0.7, 0.9, 1.0)
+	tile_borders_box.add_child(act_border_sec_lbl)
 
 	var act_border_lbl := Label.new()
 	act_border_lbl.text = "Active Paint Border:"
-	act_border_lbl.add_theme_font_size_override("font_size", 11)
+	act_border_lbl.add_theme_font_size_override("font_size", 10)
 	act_border_lbl.modulate = Color(0.8, 0.9, 1.0)
-	tile_section.add_child(act_border_lbl)
+	tile_borders_box.add_child(act_border_lbl)
 
 	active_border_opt = OptionButton.new()
 	active_border_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	active_border_opt.item_selected.connect(_on_active_border_opt_changed)
-	tile_section.add_child(active_border_opt)
+	tile_borders_box.add_child(active_border_opt)
 
 	var b_rot_hdr := Label.new()
-	b_rot_hdr.text = "Active Paint Rotation:"
-	b_rot_hdr.add_theme_font_size_override("font_size", 11)
+	b_rot_hdr.text = "Rotation:"
+	b_rot_hdr.add_theme_font_size_override("font_size", 10)
 	b_rot_hdr.modulate = Color(0.8, 0.9, 1.0)
-	tile_section.add_child(b_rot_hdr)
+	tile_borders_box.add_child(b_rot_hdr)
 
 	var border_rot_row := HBoxContainer.new()
 	border_rot_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -663,7 +754,56 @@ func _setup_ui() -> void:
 		)
 		border_rot_row.add_child(r_btn)
 		border_rot_buttons[deg] = r_btn
-	tile_section.add_child(border_rot_row)
+	tile_borders_box.add_child(border_rot_row)
+
+	var b_off_row := HBoxContainer.new()
+	b_off_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var b_off_lbl := Label.new()
+	b_off_lbl.text = "Offset From Grid:"
+	b_off_lbl.add_theme_font_size_override("font_size", 10)
+	b_off_row.add_child(b_off_lbl)
+
+	active_border_offset_spin = SpinBox.new()
+	active_border_offset_spin.min_value = -500.0
+	active_border_offset_spin.max_value = 500.0
+	active_border_offset_spin.step = 0.001
+	active_border_offset_spin.value = 0.0
+	active_border_offset_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	active_border_offset_spin.value_changed.connect(_on_border_offset_changed)
+	b_off_row.add_child(active_border_offset_spin)
+	tile_borders_box.add_child(b_off_row)
+
+	var b_scale_row := HBoxContainer.new()
+	b_scale_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var b_sx_lbl := Label.new()
+	b_sx_lbl.text = "Scale X:"
+	b_sx_lbl.add_theme_font_size_override("font_size", 10)
+	b_scale_row.add_child(b_sx_lbl)
+
+	active_border_scale_x_spin = SpinBox.new()
+	active_border_scale_x_spin.min_value = 0.001
+	active_border_scale_x_spin.max_value = 100.0
+	active_border_scale_x_spin.step = 0.001
+	active_border_scale_x_spin.value = 1.0
+	active_border_scale_x_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	active_border_scale_x_spin.value_changed.connect(_on_border_scale_x_changed)
+	b_scale_row.add_child(active_border_scale_x_spin)
+
+	var b_sy_lbl := Label.new()
+	b_sy_lbl.text = "Scale Y:"
+	b_sy_lbl.add_theme_font_size_override("font_size", 10)
+	b_scale_row.add_child(b_sy_lbl)
+
+	active_border_scale_y_spin = SpinBox.new()
+	active_border_scale_y_spin.min_value = 0.001
+	active_border_scale_y_spin.max_value = 100.0
+	active_border_scale_y_spin.step = 0.001
+	active_border_scale_y_spin.value = 1.0
+	active_border_scale_y_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	active_border_scale_y_spin.value_changed.connect(_on_border_scale_y_changed)
+	b_scale_row.add_child(active_border_scale_y_spin)
+	tile_borders_box.add_child(b_scale_row)
 
 	var border_tool_row := HBoxContainer.new()
 	border_tool_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -682,14 +822,16 @@ func _setup_ui() -> void:
 	border_erase_btn.tooltip_text = "Activate border erase mode. Click on cell edges to remove border."
 	border_erase_btn.pressed.connect(_on_erase_border_pressed)
 	border_tool_row.add_child(border_erase_btn)
-	tile_section.add_child(border_tool_row)
+	tile_borders_box.add_child(border_tool_row)
 
 	var clr_borders_btn := Button.new()
 	clr_borders_btn.text = "❌ Clear All Borders"
 	clr_borders_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	clr_borders_btn.tooltip_text = "Clear all placed borders on this stage"
 	clr_borders_btn.pressed.connect(_on_clear_all_borders_pressed)
-	tile_section.add_child(clr_borders_btn)
+	tile_borders_box.add_child(clr_borders_btn)
+
+	tile_borders_box.add_child(HSeparator.new())
 
 	# Selected Border Visual In-Place Editor
 	sel_border_box = VBoxContainer.new()
@@ -701,6 +843,12 @@ func _setup_ui() -> void:
 	sel_b_pnl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var sel_b_inner := VBoxContainer.new()
 	sel_b_inner.add_theme_constant_override("separation", 4)
+
+	var sel_b_sec_hdr := Label.new()
+	sel_b_sec_hdr.text = "SELECTED BORDER"
+	sel_b_sec_hdr.add_theme_font_size_override("font_size", 10)
+	sel_b_sec_hdr.modulate = Color(0.4, 0.9, 1.0)
+	sel_b_inner.add_child(sel_b_sec_hdr)
 
 	sel_border_lbl = Label.new()
 	sel_border_lbl.text = "Selected Border: (none)"
@@ -737,6 +885,55 @@ func _setup_ui() -> void:
 
 	sel_b_inner.add_child(sel_b_edit_row)
 
+	var sel_b_off_row := HBoxContainer.new()
+	sel_b_off_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sb_off_lbl := Label.new()
+	sb_off_lbl.text = "Offset From Grid:"
+	sb_off_lbl.add_theme_font_size_override("font_size", 10)
+	sel_b_off_row.add_child(sb_off_lbl)
+
+	sel_border_offset_spin = SpinBox.new()
+	sel_border_offset_spin.min_value = -500.0
+	sel_border_offset_spin.max_value = 500.0
+	sel_border_offset_spin.step = 0.001
+	sel_border_offset_spin.value = 0.0
+	sel_border_offset_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_border_offset_spin.value_changed.connect(_on_sel_border_offset_changed)
+	sel_b_off_row.add_child(sel_border_offset_spin)
+	sel_b_inner.add_child(sel_b_off_row)
+
+	var sel_b_scale_row := HBoxContainer.new()
+	sel_b_scale_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var sb_sx_lbl := Label.new()
+	sb_sx_lbl.text = "Scale X:"
+	sb_sx_lbl.add_theme_font_size_override("font_size", 10)
+	sel_b_scale_row.add_child(sb_sx_lbl)
+
+	sel_border_scale_x_spin = SpinBox.new()
+	sel_border_scale_x_spin.min_value = 0.001
+	sel_border_scale_x_spin.max_value = 100.0
+	sel_border_scale_x_spin.step = 0.001
+	sel_border_scale_x_spin.value = 1.0
+	sel_border_scale_x_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_border_scale_x_spin.value_changed.connect(_on_sel_border_scale_x_changed)
+	sel_b_scale_row.add_child(sel_border_scale_x_spin)
+
+	var sb_sy_lbl := Label.new()
+	sb_sy_lbl.text = "Scale Y:"
+	sb_sy_lbl.add_theme_font_size_override("font_size", 10)
+	sel_b_scale_row.add_child(sb_sy_lbl)
+
+	sel_border_scale_y_spin = SpinBox.new()
+	sel_border_scale_y_spin.min_value = 0.001
+	sel_border_scale_y_spin.max_value = 100.0
+	sel_border_scale_y_spin.step = 0.001
+	sel_border_scale_y_spin.value = 1.0
+	sel_border_scale_y_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_border_scale_y_spin.value_changed.connect(_on_sel_border_scale_y_changed)
+	sel_b_scale_row.add_child(sel_border_scale_y_spin)
+	sel_b_inner.add_child(sel_b_scale_row)
+
 	var sel_b_del_btn := Button.new()
 	sel_b_del_btn.text = "🧽 Remove From This Border"
 	sel_b_del_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -745,29 +942,33 @@ func _setup_ui() -> void:
 
 	sel_b_pnl.add_child(sel_b_inner)
 	sel_border_box.add_child(sel_b_pnl)
-	tile_section.add_child(sel_border_box)
+	tile_borders_box.add_child(sel_border_box)
 
 	border_status_lbl = Label.new()
 	border_status_lbl.add_theme_font_size_override("font_size", 11)
 	border_status_lbl.modulate = Color(0.85, 0.9, 0.95)
 	border_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	tile_section.add_child(border_status_lbl)
-
-	tile_section.add_child(HSeparator.new())
+	tile_borders_box.add_child(border_status_lbl)
 
 	# =========================================================================
-	# 3. CORNER IMAGES & PAINTING
+	# TAB 3: CORNERS (CORNER IMAGES & PAINTING)
 	# =========================================================================
+	tile_corners_box = VBoxContainer.new()
+	tile_corners_box.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tile_corners_box.add_theme_constant_override("separation", 6)
+	tile_corners_box.visible = false
+	tile_section.add_child(tile_corners_box)
+
 	var corner_hdr := Label.new()
-	corner_hdr.text = "📐 CORNER IMAGES"
-	corner_hdr.add_theme_font_size_override("font_size", 12)
+	corner_hdr.text = "CORNER IMAGES"
+	corner_hdr.add_theme_font_size_override("font_size", 11)
 	corner_hdr.modulate = Color(0.9, 0.55, 1.0)
-	tile_section.add_child(corner_hdr)
+	tile_corners_box.add_child(corner_hdr)
 
 	corner_assets_container = VBoxContainer.new()
 	corner_assets_container.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	corner_assets_container.add_theme_constant_override("separation", 4)
-	tile_section.add_child(corner_assets_container)
+	tile_corners_box.add_child(corner_assets_container)
 
 	var add_corner_btn := Button.new()
 	add_corner_btn.text = "➕ Add Corner Image"
@@ -781,24 +982,32 @@ func _setup_ui() -> void:
 				_refresh_tiles_ui()
 		)
 	)
-	tile_section.add_child(add_corner_btn)
+	tile_corners_box.add_child(add_corner_btn)
+
+	tile_corners_box.add_child(HSeparator.new())
+
+	var act_corner_sec_lbl := Label.new()
+	act_corner_sec_lbl.text = "ACTIVE CORNER"
+	act_corner_sec_lbl.add_theme_font_size_override("font_size", 11)
+	act_corner_sec_lbl.modulate = Color(0.95, 0.75, 1.0)
+	tile_corners_box.add_child(act_corner_sec_lbl)
 
 	var act_corner_lbl := Label.new()
 	act_corner_lbl.text = "Active Paint Corner:"
-	act_corner_lbl.add_theme_font_size_override("font_size", 11)
+	act_corner_lbl.add_theme_font_size_override("font_size", 10)
 	act_corner_lbl.modulate = Color(0.8, 0.9, 1.0)
-	tile_section.add_child(act_corner_lbl)
+	tile_corners_box.add_child(act_corner_lbl)
 
 	active_corner_opt = OptionButton.new()
 	active_corner_opt.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	active_corner_opt.item_selected.connect(_on_active_corner_opt_changed)
-	tile_section.add_child(active_corner_opt)
+	tile_corners_box.add_child(active_corner_opt)
 
 	var c_rot_hdr := Label.new()
-	c_rot_hdr.text = "Active Paint Rotation:"
-	c_rot_hdr.add_theme_font_size_override("font_size", 11)
+	c_rot_hdr.text = "Rotation:"
+	c_rot_hdr.add_theme_font_size_override("font_size", 10)
 	c_rot_hdr.modulate = Color(0.8, 0.9, 1.0)
-	tile_section.add_child(c_rot_hdr)
+	tile_corners_box.add_child(c_rot_hdr)
 
 	var corner_rot_row := HBoxContainer.new()
 	corner_rot_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -824,7 +1033,56 @@ func _setup_ui() -> void:
 		)
 		corner_rot_row.add_child(r_btn)
 		corner_rot_buttons[deg] = r_btn
-	tile_section.add_child(corner_rot_row)
+	tile_corners_box.add_child(corner_rot_row)
+
+	var c_off_row := HBoxContainer.new()
+	c_off_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var c_off_lbl := Label.new()
+	c_off_lbl.text = "Offset From Grid:"
+	c_off_lbl.add_theme_font_size_override("font_size", 10)
+	c_off_row.add_child(c_off_lbl)
+
+	active_corner_offset_spin = SpinBox.new()
+	active_corner_offset_spin.min_value = -500.0
+	active_corner_offset_spin.max_value = 500.0
+	active_corner_offset_spin.step = 0.001
+	active_corner_offset_spin.value = 0.0
+	active_corner_offset_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	active_corner_offset_spin.value_changed.connect(_on_corner_offset_changed)
+	c_off_row.add_child(active_corner_offset_spin)
+	tile_corners_box.add_child(c_off_row)
+
+	var c_scale_row := HBoxContainer.new()
+	c_scale_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var c_sx_lbl := Label.new()
+	c_sx_lbl.text = "Scale X:"
+	c_sx_lbl.add_theme_font_size_override("font_size", 10)
+	c_scale_row.add_child(c_sx_lbl)
+
+	active_corner_scale_x_spin = SpinBox.new()
+	active_corner_scale_x_spin.min_value = 0.001
+	active_corner_scale_x_spin.max_value = 100.0
+	active_corner_scale_x_spin.step = 0.001
+	active_corner_scale_x_spin.value = 1.0
+	active_corner_scale_x_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	active_corner_scale_x_spin.value_changed.connect(_on_corner_scale_x_changed)
+	c_scale_row.add_child(active_corner_scale_x_spin)
+
+	var c_sy_lbl := Label.new()
+	c_sy_lbl.text = "Scale Y:"
+	c_sy_lbl.add_theme_font_size_override("font_size", 10)
+	c_scale_row.add_child(c_sy_lbl)
+
+	active_corner_scale_y_spin = SpinBox.new()
+	active_corner_scale_y_spin.min_value = 0.001
+	active_corner_scale_y_spin.max_value = 100.0
+	active_corner_scale_y_spin.step = 0.001
+	active_corner_scale_y_spin.value = 1.0
+	active_corner_scale_y_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	active_corner_scale_y_spin.value_changed.connect(_on_corner_scale_y_changed)
+	c_scale_row.add_child(active_corner_scale_y_spin)
+	tile_corners_box.add_child(c_scale_row)
 
 	var corner_mirror_row := HBoxContainer.new()
 	corner_mirror_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -841,7 +1099,7 @@ func _setup_ui() -> void:
 	active_corner_my_chk.add_theme_font_size_override("font_size", 10)
 	active_corner_my_chk.toggled.connect(_on_corner_mirror_toggled)
 	corner_mirror_row.add_child(active_corner_my_chk)
-	tile_section.add_child(corner_mirror_row)
+	tile_corners_box.add_child(corner_mirror_row)
 
 	var corner_tool_row := HBoxContainer.new()
 	corner_tool_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
@@ -860,14 +1118,16 @@ func _setup_ui() -> void:
 	corner_erase_btn.tooltip_text = "Activate corner erase mode. Click on grid intersections to remove corner."
 	corner_erase_btn.pressed.connect(_on_erase_corner_pressed)
 	corner_tool_row.add_child(corner_erase_btn)
-	tile_section.add_child(corner_tool_row)
+	tile_corners_box.add_child(corner_tool_row)
 
 	var clr_corners_btn := Button.new()
 	clr_corners_btn.text = "❌ Clear All Corners"
 	clr_corners_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	clr_corners_btn.tooltip_text = "Clear all placed corners on this stage"
 	clr_corners_btn.pressed.connect(_on_clear_all_corners_pressed)
-	tile_section.add_child(clr_corners_btn)
+	tile_corners_box.add_child(clr_corners_btn)
+
+	tile_corners_box.add_child(HSeparator.new())
 
 	# Selected Corner Visual In-Place Editor
 	sel_corner_box = VBoxContainer.new()
@@ -879,6 +1139,12 @@ func _setup_ui() -> void:
 	sel_c_pnl.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	var sel_c_inner := VBoxContainer.new()
 	sel_c_inner.add_theme_constant_override("separation", 4)
+
+	var sel_c_sec_hdr := Label.new()
+	sel_c_sec_hdr.text = "SELECTED CORNER"
+	sel_c_sec_hdr.add_theme_font_size_override("font_size", 10)
+	sel_c_sec_hdr.modulate = Color(0.9, 0.55, 1.0)
+	sel_c_inner.add_child(sel_c_sec_hdr)
 
 	sel_corner_lbl = Label.new()
 	sel_corner_lbl.text = "Selected Corner: (none)"
@@ -915,6 +1181,55 @@ func _setup_ui() -> void:
 
 	sel_c_inner.add_child(sel_c_edit_row)
 
+	var sel_c_off_row := HBoxContainer.new()
+	sel_c_off_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var sc_off_lbl := Label.new()
+	sc_off_lbl.text = "Offset From Grid:"
+	sc_off_lbl.add_theme_font_size_override("font_size", 10)
+	sel_c_off_row.add_child(sc_off_lbl)
+
+	sel_corner_offset_spin = SpinBox.new()
+	sel_corner_offset_spin.min_value = -500.0
+	sel_corner_offset_spin.max_value = 500.0
+	sel_corner_offset_spin.step = 0.001
+	sel_corner_offset_spin.value = 0.0
+	sel_corner_offset_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_corner_offset_spin.value_changed.connect(_on_sel_corner_offset_changed)
+	sel_c_off_row.add_child(sel_corner_offset_spin)
+	sel_c_inner.add_child(sel_c_off_row)
+
+	var sel_c_scale_row := HBoxContainer.new()
+	sel_c_scale_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+
+	var sc_sx_lbl := Label.new()
+	sc_sx_lbl.text = "Scale X:"
+	sc_sx_lbl.add_theme_font_size_override("font_size", 10)
+	sel_c_scale_row.add_child(sc_sx_lbl)
+
+	sel_corner_scale_x_spin = SpinBox.new()
+	sel_corner_scale_x_spin.min_value = 0.001
+	sel_corner_scale_x_spin.max_value = 100.0
+	sel_corner_scale_x_spin.step = 0.001
+	sel_corner_scale_x_spin.value = 1.0
+	sel_corner_scale_x_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_corner_scale_x_spin.value_changed.connect(_on_sel_corner_scale_x_changed)
+	sel_c_scale_row.add_child(sel_corner_scale_x_spin)
+
+	var sc_sy_lbl := Label.new()
+	sc_sy_lbl.text = "Scale Y:"
+	sc_sy_lbl.add_theme_font_size_override("font_size", 10)
+	sel_c_scale_row.add_child(sc_sy_lbl)
+
+	sel_corner_scale_y_spin = SpinBox.new()
+	sel_corner_scale_y_spin.min_value = 0.001
+	sel_corner_scale_y_spin.max_value = 100.0
+	sel_corner_scale_y_spin.step = 0.001
+	sel_corner_scale_y_spin.value = 1.0
+	sel_corner_scale_y_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sel_corner_scale_y_spin.value_changed.connect(_on_sel_corner_scale_y_changed)
+	sel_c_scale_row.add_child(sel_corner_scale_y_spin)
+	sel_c_inner.add_child(sel_c_scale_row)
+
 	var sel_c_mirror_row := HBoxContainer.new()
 	sel_c_mirror_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	sel_c_mirror_row.add_theme_constant_override("separation", 12)
@@ -940,13 +1255,13 @@ func _setup_ui() -> void:
 
 	sel_c_pnl.add_child(sel_c_inner)
 	sel_corner_box.add_child(sel_c_pnl)
-	tile_section.add_child(sel_corner_box)
+	tile_corners_box.add_child(sel_corner_box)
 
 	corner_status_lbl = Label.new()
 	corner_status_lbl.add_theme_font_size_override("font_size", 11)
 	corner_status_lbl.modulate = Color(0.85, 0.9, 0.95)
 	corner_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	tile_section.add_child(corner_status_lbl)
+	tile_corners_box.add_child(corner_status_lbl)
 
 	_setup_border_file_dialog()
 
@@ -1009,6 +1324,7 @@ func _setup_ui() -> void:
 
 	_update_object_display()
 	_switch_tab(1)
+	_switch_tiles_subtab(0)
 
 func _switch_tab(idx: int) -> void:
 	if tab_obj_btn == null:
@@ -1026,6 +1342,21 @@ func _switch_tab(idx: int) -> void:
 		lvl_section.visible = (idx == 2)
 	if tile_section != null:
 		tile_section.visible = (idx == 3)
+
+func _switch_tiles_subtab(idx: int) -> void:
+	current_tiles_subtab = idx
+	if tile_subtab_default_btn != null:
+		tile_subtab_default_btn.set_pressed_no_signal(idx == 0)
+	if tile_subtab_borders_btn != null:
+		tile_subtab_borders_btn.set_pressed_no_signal(idx == 1)
+	if tile_subtab_corners_btn != null:
+		tile_subtab_corners_btn.set_pressed_no_signal(idx == 2)
+	if tile_default_box != null:
+		tile_default_box.visible = (idx == 0)
+	if tile_borders_box != null:
+		tile_borders_box.visible = (idx == 1)
+	if tile_corners_box != null:
+		tile_corners_box.visible = (idx == 2)
 
 func _make_star_spin(parent: Control, label_text: String) -> SpinBox:
 	var vbox := VBoxContainer.new()
@@ -1714,6 +2045,8 @@ func inspect_cell_visual(stage: LaserStageData, cell: Vector2i, visual_data: Dic
 	if visual_data.is_empty():
 		sel_cell_box.visible = false
 		return
+	_switch_tab(3)
+	_switch_tiles_subtab(0)
 	sel_cell_box.visible = true
 	sel_cell_lbl.text = "Selected Cell: (%d, %d)" % [cell.x, cell.y]
 	var cur_asset = str(visual_data.get("asset", ""))
@@ -1790,7 +2123,7 @@ func _select_border_asset(asset_key: String) -> void:
 				break
 	_update_border_visual_highlights()
 	_update_border_status()
-	border_visual_paint_selected.emit(active_border_asset, active_border_rot)
+	border_visual_paint_selected.emit(active_border_asset, active_border_rot, active_border_offset, active_border_scale_x, active_border_scale_y)
 
 func _on_active_border_opt_changed(idx: int) -> void:
 	if active_border_opt == null:
@@ -1803,7 +2136,7 @@ func _on_border_rot_changed(new_rot: float) -> void:
 	active_border_rot = new_rot
 	_update_border_rot_highlights()
 	_update_border_status()
-	border_visual_paint_selected.emit(active_border_asset, active_border_rot)
+	border_visual_paint_selected.emit(active_border_asset, active_border_rot, active_border_offset, active_border_scale_x, active_border_scale_y)
 
 func _select_border_rot(rot_deg: int) -> void:
 	active_border_rot = float(rot_deg)
@@ -1811,7 +2144,22 @@ func _select_border_rot(rot_deg: int) -> void:
 		active_border_rot_spin.set_value_no_signal(active_border_rot)
 	_update_border_rot_highlights()
 	_update_border_status()
-	border_visual_paint_selected.emit(active_border_asset, active_border_rot)
+	border_visual_paint_selected.emit(active_border_asset, active_border_rot, active_border_offset, active_border_scale_x, active_border_scale_y)
+
+func _on_border_offset_changed(new_offset: float) -> void:
+	active_border_offset = new_offset
+	_update_border_status()
+	border_visual_paint_selected.emit(active_border_asset, active_border_rot, active_border_offset, active_border_scale_x, active_border_scale_y)
+
+func _on_border_scale_x_changed(new_sx: float) -> void:
+	active_border_scale_x = new_sx
+	_update_border_status()
+	border_visual_paint_selected.emit(active_border_asset, active_border_rot, active_border_offset, active_border_scale_x, active_border_scale_y)
+
+func _on_border_scale_y_changed(new_sy: float) -> void:
+	active_border_scale_y = new_sy
+	_update_border_status()
+	border_visual_paint_selected.emit(active_border_asset, active_border_rot, active_border_offset, active_border_scale_x, active_border_scale_y)
 
 func _update_border_visual_highlights() -> void:
 	for k in border_asset_buttons.keys():
@@ -1837,10 +2185,10 @@ func _update_border_status() -> void:
 	var count := 0
 	if current_stage != null:
 		count = current_stage.get_border_visuals_count()
-	border_status_lbl.text = "Active Border: %s (%.0f°)\nPlaced Borders: %d\nClick outer perimeter to paint or edit." % [active_border_asset, active_border_rot, count]
+	border_status_lbl.text = "Active Border: %s (%.1f°, off: %.3f, sx: %.3f, sy: %.3f)\nPlaced Borders: %d\nClick outer perimeter to paint or edit." % [active_border_asset, active_border_rot, active_border_offset, active_border_scale_x, active_border_scale_y, count]
 
 func _on_paint_border_pressed() -> void:
-	border_visual_paint_selected.emit(active_border_asset, active_border_rot)
+	border_visual_paint_selected.emit(active_border_asset, active_border_rot, active_border_offset, active_border_scale_x, active_border_scale_y)
 	_update_border_status()
 
 func _on_erase_border_pressed() -> void:
@@ -1865,10 +2213,15 @@ func inspect_border_visual(stage: LaserStageData, side: String, index: int, visu
 	if visual_data.is_empty():
 		sel_border_box.visible = false
 		return
+	_switch_tab(3)
+	_switch_tiles_subtab(1)
 	sel_border_box.visible = true
-	sel_border_lbl.text = "Selected Border: %s Perimeter Segment %d" % [side.to_upper(), index]
+	sel_border_lbl.text = "Selected Border:\n%s Segment %d" % [side.capitalize(), index]
 	var cur_asset = str(visual_data.get("asset", ""))
 	var cur_rot = float(visual_data.get("rotation", 0.0))
+	var cur_offset = float(visual_data.get("offset", 0.0))
+	var cur_sx = float(visual_data.get("scale_x", visual_data.get("scale", 1.0)))
+	var cur_sy = float(visual_data.get("scale_y", visual_data.get("scale", 1.0)))
 
 	sel_border_asset_opt.clear()
 	var selected_idx := 0
@@ -1886,15 +2239,24 @@ func inspect_border_visual(stage: LaserStageData, side: String, index: int, visu
 
 	sel_border_asset_opt.select(selected_idx)
 	sel_border_rot_spin.set_value_no_signal(cur_rot)
+	if sel_border_offset_spin != null:
+		sel_border_offset_spin.set_value_no_signal(cur_offset)
+	if sel_border_scale_x_spin != null:
+		sel_border_scale_x_spin.set_value_no_signal(cur_sx)
+	if sel_border_scale_y_spin != null:
+		sel_border_scale_y_spin.set_value_no_signal(cur_sy)
 
 func _on_sel_border_rot_changed(new_rot: float) -> void:
 	if current_stage == null or current_selected_border_side.is_empty() or current_selected_border_index < 0:
 		return
 	var cur_vis = current_stage.get_border_visual(current_selected_border_side, current_selected_border_index)
 	var cur_asset = str(cur_vis.get("asset", active_border_asset))
-	current_stage.set_border_visual(current_selected_border_side, current_selected_border_index, cur_asset, new_rot)
+	var cur_offset = float(cur_vis.get("offset", 0.0))
+	var cur_sx = float(cur_vis.get("scale_x", active_border_scale_x))
+	var cur_sy = float(cur_vis.get("scale_y", active_border_scale_y))
+	current_stage.set_border_visual(current_selected_border_side, current_selected_border_index, cur_asset, new_rot, cur_offset, cur_sx, cur_sy)
 	stage_settings_changed.emit(current_stage)
-	border_visual_modified.emit(current_stage, current_selected_border_side, current_selected_border_index, cur_asset, new_rot)
+	border_visual_modified.emit(current_stage, current_selected_border_side, current_selected_border_index, cur_asset, new_rot, cur_offset, cur_sx, cur_sy)
 
 func _on_sel_border_asset_changed(idx: int) -> void:
 	if current_stage == null or current_selected_border_side.is_empty() or current_selected_border_index < 0:
@@ -1902,9 +2264,48 @@ func _on_sel_border_asset_changed(idx: int) -> void:
 	var chosen_asset = str(sel_border_asset_opt.get_item_metadata(idx)) if idx >= 0 else sel_border_asset_opt.get_item_text(idx)
 	var cur_vis = current_stage.get_border_visual(current_selected_border_side, current_selected_border_index)
 	var cur_rot = float(cur_vis.get("rotation", active_border_rot))
-	current_stage.set_border_visual(current_selected_border_side, current_selected_border_index, chosen_asset, cur_rot)
+	var cur_offset = float(cur_vis.get("offset", 0.0))
+	var cur_sx = float(cur_vis.get("scale_x", active_border_scale_x))
+	var cur_sy = float(cur_vis.get("scale_y", active_border_scale_y))
+	current_stage.set_border_visual(current_selected_border_side, current_selected_border_index, chosen_asset, cur_rot, cur_offset, cur_sx, cur_sy)
 	stage_settings_changed.emit(current_stage)
-	border_visual_modified.emit(current_stage, current_selected_border_side, current_selected_border_index, chosen_asset, cur_rot)
+	border_visual_modified.emit(current_stage, current_selected_border_side, current_selected_border_index, chosen_asset, cur_rot, cur_offset, cur_sx, cur_sy)
+
+func _on_sel_border_offset_changed(new_offset: float) -> void:
+	if current_stage == null or current_selected_border_side.is_empty() or current_selected_border_index < 0:
+		return
+	var cur_vis = current_stage.get_border_visual(current_selected_border_side, current_selected_border_index)
+	var cur_asset = str(cur_vis.get("asset", active_border_asset))
+	var cur_rot = float(cur_vis.get("rotation", active_border_rot))
+	var cur_sx = float(cur_vis.get("scale_x", active_border_scale_x))
+	var cur_sy = float(cur_vis.get("scale_y", active_border_scale_y))
+	current_stage.set_border_visual(current_selected_border_side, current_selected_border_index, cur_asset, cur_rot, new_offset, cur_sx, cur_sy)
+	stage_settings_changed.emit(current_stage)
+	border_visual_modified.emit(current_stage, current_selected_border_side, current_selected_border_index, cur_asset, cur_rot, new_offset, cur_sx, cur_sy)
+
+func _on_sel_border_scale_x_changed(new_sx: float) -> void:
+	if current_stage == null or current_selected_border_side.is_empty() or current_selected_border_index < 0:
+		return
+	var cur_vis = current_stage.get_border_visual(current_selected_border_side, current_selected_border_index)
+	var cur_asset = str(cur_vis.get("asset", active_border_asset))
+	var cur_rot = float(cur_vis.get("rotation", active_border_rot))
+	var cur_offset = float(cur_vis.get("offset", 0.0))
+	var cur_sy = float(cur_vis.get("scale_y", active_border_scale_y))
+	current_stage.set_border_visual(current_selected_border_side, current_selected_border_index, cur_asset, cur_rot, cur_offset, new_sx, cur_sy)
+	stage_settings_changed.emit(current_stage)
+	border_visual_modified.emit(current_stage, current_selected_border_side, current_selected_border_index, cur_asset, cur_rot, cur_offset, new_sx, cur_sy)
+
+func _on_sel_border_scale_y_changed(new_sy: float) -> void:
+	if current_stage == null or current_selected_border_side.is_empty() or current_selected_border_index < 0:
+		return
+	var cur_vis = current_stage.get_border_visual(current_selected_border_side, current_selected_border_index)
+	var cur_asset = str(cur_vis.get("asset", active_border_asset))
+	var cur_rot = float(cur_vis.get("rotation", active_border_rot))
+	var cur_offset = float(cur_vis.get("offset", 0.0))
+	var cur_sx = float(cur_vis.get("scale_x", active_border_scale_x))
+	current_stage.set_border_visual(current_selected_border_side, current_selected_border_index, cur_asset, cur_rot, cur_offset, cur_sx, new_sy)
+	stage_settings_changed.emit(current_stage)
+	border_visual_modified.emit(current_stage, current_selected_border_side, current_selected_border_index, cur_asset, cur_rot, cur_offset, cur_sx, new_sy)
 
 func _on_sel_border_remove_pressed() -> void:
 	if current_stage == null or current_selected_border_side.is_empty() or current_selected_border_index < 0:
@@ -1928,7 +2329,7 @@ func _select_corner_asset(asset_key: String) -> void:
 				break
 	_update_corner_visual_highlights()
 	_update_corner_status()
-	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y)
+	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y, active_corner_offset, active_corner_scale_x, active_corner_scale_y)
 
 func _on_active_corner_opt_changed(idx: int) -> void:
 	if active_corner_opt == null:
@@ -1941,7 +2342,7 @@ func _on_corner_rot_changed(new_rot: float) -> void:
 	active_corner_rot = new_rot
 	_update_corner_rot_highlights()
 	_update_corner_status()
-	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y)
+	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y, active_corner_offset, active_corner_scale_x, active_corner_scale_y)
 
 func _select_corner_rot(rot_deg: int) -> void:
 	active_corner_rot = float(rot_deg)
@@ -1949,14 +2350,29 @@ func _select_corner_rot(rot_deg: int) -> void:
 		active_corner_rot_spin.set_value_no_signal(active_corner_rot)
 	_update_corner_rot_highlights()
 	_update_corner_status()
-	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y)
+	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y, active_corner_offset, active_corner_scale_x, active_corner_scale_y)
+
+func _on_corner_offset_changed(new_offset: float) -> void:
+	active_corner_offset = new_offset
+	_update_corner_status()
+	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y, active_corner_offset, active_corner_scale_x, active_corner_scale_y)
+
+func _on_corner_scale_x_changed(new_sx: float) -> void:
+	active_corner_scale_x = new_sx
+	_update_corner_status()
+	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y, active_corner_offset, active_corner_scale_x, active_corner_scale_y)
+
+func _on_corner_scale_y_changed(new_sy: float) -> void:
+	active_corner_scale_y = new_sy
+	_update_corner_status()
+	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y, active_corner_offset, active_corner_scale_x, active_corner_scale_y)
 
 func _on_corner_mirror_toggled(_t: bool) -> void:
 	if active_corner_mx_chk != null:
 		active_corner_mirror_x = active_corner_mx_chk.button_pressed
 	if active_corner_my_chk != null:
 		active_corner_mirror_y = active_corner_my_chk.button_pressed
-	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y)
+	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y, active_corner_offset, active_corner_scale_x, active_corner_scale_y)
 
 func _update_corner_visual_highlights() -> void:
 	for k in corner_asset_buttons.keys():
@@ -1982,14 +2398,14 @@ func _update_corner_status() -> void:
 	var count := 0
 	if current_stage != null:
 		count = current_stage.get_corner_visuals_count()
-	corner_status_lbl.text = "Active Corner: %s (%.0f°)\nPlaced Corners: %d\nClick outer corner to paint or edit." % [active_corner_asset, active_corner_rot, count]
+	corner_status_lbl.text = "Active Corner: %s (%.1f°, off: %.3f, sx: %.3f, sy: %.3f)\nPlaced Corners: %d\nClick outer corner to paint or edit." % [active_corner_asset, active_corner_rot, active_corner_offset, active_corner_scale_x, active_corner_scale_y, count]
 
 func _on_paint_corner_pressed() -> void:
 	if active_corner_mx_chk != null:
 		active_corner_mirror_x = active_corner_mx_chk.button_pressed
 	if active_corner_my_chk != null:
 		active_corner_mirror_y = active_corner_my_chk.button_pressed
-	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y)
+	corner_visual_paint_selected.emit(active_corner_asset, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y, active_corner_offset, active_corner_scale_x, active_corner_scale_y)
 	_update_corner_status()
 
 func _on_erase_corner_pressed() -> void:
@@ -2013,12 +2429,17 @@ func inspect_corner_visual(stage: LaserStageData, corner: String, visual_data: D
 	if visual_data.is_empty():
 		sel_corner_box.visible = false
 		return
+	_switch_tab(3)
+	_switch_tiles_subtab(2)
 	sel_corner_box.visible = true
-	sel_corner_lbl.text = "Selected Corner: %s" % corner.replace("_", " ").capitalize()
+	sel_corner_lbl.text = "Selected Corner:\n%s" % corner.replace("_", " ").capitalize()
 	var cur_asset = str(visual_data.get("asset", ""))
 	var cur_rot = float(visual_data.get("rotation", 0.0))
 	var cur_mx = bool(visual_data.get("mirror_x", false))
 	var cur_my = bool(visual_data.get("mirror_y", false))
+	var cur_offset = float(visual_data.get("offset", 0.0))
+	var cur_sx = float(visual_data.get("scale_x", visual_data.get("scale", 1.0)))
+	var cur_sy = float(visual_data.get("scale_y", visual_data.get("scale", 1.0)))
 
 	sel_corner_asset_opt.clear()
 	var selected_idx := 0
@@ -2038,6 +2459,12 @@ func inspect_corner_visual(stage: LaserStageData, corner: String, visual_data: D
 	sel_corner_rot_spin.set_value_no_signal(cur_rot)
 	sel_corner_mx_chk.set_pressed_no_signal(cur_mx)
 	sel_corner_my_chk.set_pressed_no_signal(cur_my)
+	if sel_corner_offset_spin != null:
+		sel_corner_offset_spin.set_value_no_signal(cur_offset)
+	if sel_corner_scale_x_spin != null:
+		sel_corner_scale_x_spin.set_value_no_signal(cur_sx)
+	if sel_corner_scale_y_spin != null:
+		sel_corner_scale_y_spin.set_value_no_signal(cur_sy)
 
 func _on_sel_corner_rot_changed(new_rot: float) -> void:
 	if current_stage == null or current_selected_corner_name.is_empty():
@@ -2046,9 +2473,12 @@ func _on_sel_corner_rot_changed(new_rot: float) -> void:
 	var cur_asset = str(cur_vis.get("asset", active_corner_asset))
 	var cur_mx = bool(cur_vis.get("mirror_x", false))
 	var cur_my = bool(cur_vis.get("mirror_y", false))
-	current_stage.set_corner_visual(current_selected_corner_name, cur_asset, new_rot, cur_mx, cur_my)
+	var cur_offset = float(cur_vis.get("offset", 0.0))
+	var cur_sx = float(cur_vis.get("scale_x", active_corner_scale_x))
+	var cur_sy = float(cur_vis.get("scale_y", active_corner_scale_y))
+	current_stage.set_corner_visual(current_selected_corner_name, cur_asset, new_rot, cur_mx, cur_my, cur_offset, cur_sx, cur_sy)
 	stage_settings_changed.emit(current_stage)
-	corner_visual_modified.emit(current_stage, current_selected_corner_name, cur_asset, new_rot, cur_mx, cur_my)
+	corner_visual_modified.emit(current_stage, current_selected_corner_name, cur_asset, new_rot, cur_mx, cur_my, cur_offset, cur_sx, cur_sy)
 
 func _on_sel_corner_asset_changed(idx: int) -> void:
 	if current_stage == null or current_selected_corner_name.is_empty():
@@ -2058,9 +2488,12 @@ func _on_sel_corner_asset_changed(idx: int) -> void:
 	var cur_rot = float(cur_vis.get("rotation", active_corner_rot))
 	var cur_mx = bool(cur_vis.get("mirror_x", false))
 	var cur_my = bool(cur_vis.get("mirror_y", false))
-	current_stage.set_corner_visual(current_selected_corner_name, chosen_asset, cur_rot, cur_mx, cur_my)
+	var cur_offset = float(cur_vis.get("offset", 0.0))
+	var cur_sx = float(cur_vis.get("scale_x", active_corner_scale_x))
+	var cur_sy = float(cur_vis.get("scale_y", active_corner_scale_y))
+	current_stage.set_corner_visual(current_selected_corner_name, chosen_asset, cur_rot, cur_mx, cur_my, cur_offset, cur_sx, cur_sy)
 	stage_settings_changed.emit(current_stage)
-	corner_visual_modified.emit(current_stage, current_selected_corner_name, chosen_asset, cur_rot, cur_mx, cur_my)
+	corner_visual_modified.emit(current_stage, current_selected_corner_name, chosen_asset, cur_rot, cur_mx, cur_my, cur_offset, cur_sx, cur_sy)
 
 func _on_sel_corner_mirror_changed(_t: bool) -> void:
 	if current_stage == null or current_selected_corner_name.is_empty():
@@ -2070,9 +2503,54 @@ func _on_sel_corner_mirror_changed(_t: bool) -> void:
 	var cur_rot = float(cur_vis.get("rotation", active_corner_rot))
 	var mx = sel_corner_mx_chk.button_pressed if sel_corner_mx_chk != null else false
 	var my = sel_corner_my_chk.button_pressed if sel_corner_my_chk != null else false
-	current_stage.set_corner_visual(current_selected_corner_name, cur_asset, cur_rot, mx, my)
+	var cur_offset = float(cur_vis.get("offset", 0.0))
+	var cur_sx = float(cur_vis.get("scale_x", active_corner_scale_x))
+	var cur_sy = float(cur_vis.get("scale_y", active_corner_scale_y))
+	current_stage.set_corner_visual(current_selected_corner_name, cur_asset, cur_rot, mx, my, cur_offset, cur_sx, cur_sy)
 	stage_settings_changed.emit(current_stage)
-	corner_visual_modified.emit(current_stage, current_selected_corner_name, cur_asset, cur_rot, mx, my)
+	corner_visual_modified.emit(current_stage, current_selected_corner_name, cur_asset, cur_rot, mx, my, cur_offset, cur_sx, cur_sy)
+
+func _on_sel_corner_offset_changed(new_offset: float) -> void:
+	if current_stage == null or current_selected_corner_name.is_empty():
+		return
+	var cur_vis = current_stage.get_corner_visual(current_selected_corner_name)
+	var cur_asset = str(cur_vis.get("asset", active_corner_asset))
+	var cur_rot = float(cur_vis.get("rotation", active_corner_rot))
+	var cur_mx = bool(cur_vis.get("mirror_x", false))
+	var cur_my = bool(cur_vis.get("mirror_y", false))
+	var cur_sx = float(cur_vis.get("scale_x", active_corner_scale_x))
+	var cur_sy = float(cur_vis.get("scale_y", active_corner_scale_y))
+	current_stage.set_corner_visual(current_selected_corner_name, cur_asset, cur_rot, cur_mx, cur_my, new_offset, cur_sx, cur_sy)
+	stage_settings_changed.emit(current_stage)
+	corner_visual_modified.emit(current_stage, current_selected_corner_name, cur_asset, cur_rot, cur_mx, cur_my, new_offset, cur_sx, cur_sy)
+
+func _on_sel_corner_scale_x_changed(new_sx: float) -> void:
+	if current_stage == null or current_selected_corner_name.is_empty():
+		return
+	var cur_vis = current_stage.get_corner_visual(current_selected_corner_name)
+	var cur_asset = str(cur_vis.get("asset", active_corner_asset))
+	var cur_rot = float(cur_vis.get("rotation", active_corner_rot))
+	var cur_mx = bool(cur_vis.get("mirror_x", false))
+	var cur_my = bool(cur_vis.get("mirror_y", false))
+	var cur_offset = float(cur_vis.get("offset", 0.0))
+	var cur_sy = float(cur_vis.get("scale_y", active_corner_scale_y))
+	current_stage.set_corner_visual(current_selected_corner_name, cur_asset, cur_rot, cur_mx, cur_my, cur_offset, new_sx, cur_sy)
+	stage_settings_changed.emit(current_stage)
+	corner_visual_modified.emit(current_stage, current_selected_corner_name, cur_asset, cur_rot, cur_mx, cur_my, cur_offset, new_sx, cur_sy)
+
+func _on_sel_corner_scale_y_changed(new_sy: float) -> void:
+	if current_stage == null or current_selected_corner_name.is_empty():
+		return
+	var cur_vis = current_stage.get_corner_visual(current_selected_corner_name)
+	var cur_asset = str(cur_vis.get("asset", active_corner_asset))
+	var cur_rot = float(cur_vis.get("rotation", active_corner_rot))
+	var cur_mx = bool(cur_vis.get("mirror_x", false))
+	var cur_my = bool(cur_vis.get("mirror_y", false))
+	var cur_offset = float(cur_vis.get("offset", 0.0))
+	var cur_sx = float(cur_vis.get("scale_x", active_corner_scale_x))
+	current_stage.set_corner_visual(current_selected_corner_name, cur_asset, cur_rot, cur_mx, cur_my, cur_offset, cur_sx, new_sy)
+	stage_settings_changed.emit(current_stage)
+	corner_visual_modified.emit(current_stage, current_selected_corner_name, cur_asset, cur_rot, cur_mx, cur_my, cur_offset, cur_sx, new_sy)
 
 func _on_sel_corner_remove_pressed() -> void:
 	if current_stage == null or current_selected_corner_name.is_empty():

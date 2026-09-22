@@ -209,7 +209,34 @@ static func draw_cell_visual(
 	canvas.draw_texture(texture, -tex_sz * 0.5, modulate)
 	canvas.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
 
-static func get_perimeter_border_rect(origin: Vector2, cell_size: Vector2, grid_width: int, grid_height: int, side: String, index: int) -> Rect2:
+static func draw_border_or_corner_visual(
+	canvas: CanvasItem,
+	center: Vector2,
+	texture: Texture2D,
+	rot_deg: float,
+	scale_x: float = 1.0,
+	scale_y: float = 1.0,
+	mirror_x: bool = false,
+	mirror_y: bool = false,
+	modulate: Color = Color.WHITE
+) -> void:
+	if canvas == null or texture == null:
+		return
+	var tex_sz := texture.get_size()
+	if tex_sz.x <= 0 or tex_sz.y <= 0:
+		return
+
+	var final_scale := Vector2(
+		-scale_x if mirror_x else scale_x,
+		-scale_y if mirror_y else scale_y
+	)
+	var rad := deg_to_rad(rot_deg)
+
+	canvas.draw_set_transform(center, rad, final_scale)
+	canvas.draw_texture(texture, -tex_sz * 0.5, modulate)
+	canvas.draw_set_transform(Vector2.ZERO, 0.0, Vector2.ONE)
+
+static func get_perimeter_border_center(origin: Vector2, cell_size: Vector2, grid_width: int, grid_height: int, side: String, index: int, offset: float = 0.0) -> Vector2:
 	var grid_left := origin.x
 	var grid_top := origin.y
 	var grid_right := origin.x + float(grid_width) * cell_size.x
@@ -217,17 +244,44 @@ static func get_perimeter_border_rect(origin: Vector2, cell_size: Vector2, grid_
 
 	match side.to_lower():
 		"top":
-			return Rect2(grid_left + float(index) * cell_size.x, grid_top - cell_size.y, cell_size.x, cell_size.y)
+			var base := Vector2(grid_left + (float(index) + 0.5) * cell_size.x, grid_top - 0.5 * cell_size.y)
+			return base + Vector2(0, -1) * offset
 		"bottom":
-			return Rect2(grid_left + float(index) * cell_size.x, grid_bottom, cell_size.x, cell_size.y)
+			var base := Vector2(grid_left + (float(index) + 0.5) * cell_size.x, grid_bottom + 0.5 * cell_size.y)
+			return base + Vector2(0, 1) * offset
 		"left":
-			return Rect2(grid_left - cell_size.x, grid_top + float(index) * cell_size.y, cell_size.x, cell_size.y)
+			var base := Vector2(grid_left - 0.5 * cell_size.x, grid_top + (float(index) + 0.5) * cell_size.y)
+			return base + Vector2(-1, 0) * offset
 		"right":
-			return Rect2(grid_right, grid_top + float(index) * cell_size.y, cell_size.x, cell_size.y)
+			var base := Vector2(grid_right + 0.5 * cell_size.x, grid_top + (float(index) + 0.5) * cell_size.y)
+			return base + Vector2(1, 0) * offset
 		_:
-			return Rect2(origin, cell_size)
+			return origin
 
-static func get_outer_corner_rect(origin: Vector2, cell_size: Vector2, grid_width: int, grid_height: int, corner: String) -> Rect2:
+static func get_transformed_visual_rect(
+	center: Vector2,
+	tex_sz: Vector2,
+	rot_deg: float,
+	scale_x: float,
+	scale_y: float,
+	fallback_size: Vector2
+) -> Rect2:
+	var sz := (tex_sz * Vector2(absf(scale_x), absf(scale_y))) if (tex_sz.x > 0.0 and tex_sz.y > 0.0) else (fallback_size * Vector2(absf(scale_x), absf(scale_y)))
+	var h := sz * 0.5
+	var rad := deg_to_rad(rot_deg)
+	var p0 := center + Vector2(-h.x, -h.y).rotated(rad)
+	var p1 := center + Vector2(h.x, -h.y).rotated(rad)
+	var p2 := center + Vector2(h.x, h.y).rotated(rad)
+	var p3 := center + Vector2(-h.x, h.y).rotated(rad)
+	var r := Rect2(p0, Vector2.ZERO)
+	r = r.expand(p1).expand(p2).expand(p3)
+	return r
+
+static func get_perimeter_border_rect(origin: Vector2, cell_size: Vector2, grid_width: int, grid_height: int, side: String, index: int, offset: float = 0.0) -> Rect2:
+	var center := get_perimeter_border_center(origin, cell_size, grid_width, grid_height, side, index, offset)
+	return Rect2(center - cell_size * 0.5, cell_size)
+
+static func get_outer_corner_center(origin: Vector2, cell_size: Vector2, grid_width: int, grid_height: int, corner: String, offset: float = 0.0) -> Vector2:
 	var grid_left := origin.x
 	var grid_top := origin.y
 	var grid_right := origin.x + float(grid_width) * cell_size.x
@@ -235,20 +289,141 @@ static func get_outer_corner_rect(origin: Vector2, cell_size: Vector2, grid_widt
 
 	match corner.to_lower():
 		"top_left":
-			return Rect2(grid_left - cell_size.x, grid_top - cell_size.y, cell_size.x, cell_size.y)
+			var base := Vector2(grid_left - 0.5 * cell_size.x, grid_top - 0.5 * cell_size.y)
+			return base + Vector2(-1, -1) * offset
 		"top_right":
-			return Rect2(grid_right, grid_top - cell_size.y, cell_size.x, cell_size.y)
+			var base := Vector2(grid_right + 0.5 * cell_size.x, grid_top - 0.5 * cell_size.y)
+			return base + Vector2(1, -1) * offset
 		"bottom_left":
-			return Rect2(grid_left - cell_size.x, grid_bottom, cell_size.x, cell_size.y)
+			var base := Vector2(grid_left - 0.5 * cell_size.x, grid_bottom + 0.5 * cell_size.y)
+			return base + Vector2(-1, 1) * offset
 		"bottom_right":
-			return Rect2(grid_right, grid_bottom, cell_size.x, cell_size.y)
+			var base := Vector2(grid_right + 0.5 * cell_size.x, grid_bottom + 0.5 * cell_size.y)
+			return base + Vector2(1, 1) * offset
 		_:
-			return Rect2(origin, cell_size)
+			return origin
+
+static func get_outer_corner_rect(origin: Vector2, cell_size: Vector2, grid_width: int, grid_height: int, corner: String, offset: float = 0.0) -> Rect2:
+	var center := get_outer_corner_center(origin, cell_size, grid_width, grid_height, corner, offset)
+	return Rect2(center - cell_size * 0.5, cell_size)
+
+static func get_border_piece_transform(
+	stage: LaserStageData,
+	origin: Vector2,
+	cell_size: Vector2,
+	side: String,
+	index: int,
+	zoom: float = 1.0,
+	custom_data: Dictionary = {}
+) -> Dictionary:
+	var vis := custom_data
+	if vis.is_empty() and stage != null:
+		vis = stage.get_border_visual(side, index)
+
+	var asset_id := str(vis.get("asset", ""))
+	var rot_deg := float(vis.get("rotation", 0.0))
+	var offset := float(vis.get("offset", 0.0))
+	var scale_x_val := float(vis.get("scale_x", vis.get("scale", 1.0)))
+	var scale_y_val := float(vis.get("scale_y", vis.get("scale", 1.0)))
+
+	var gw := stage.grid_width if stage != null else 1
+	var gh := stage.grid_height if stage != null else 1
+
+	var center := get_perimeter_border_center(origin, cell_size, gw, gh, side, index, offset * zoom)
+	var slot_rect := get_perimeter_border_rect(origin, cell_size, gw, gh, side, index, offset * zoom)
+
+	var tex: Texture2D = null
+	if not asset_id.is_empty() and stage != null:
+		tex = get_border_asset_texture(stage, asset_id)
+
+	var tex_sz := tex.get_size() if tex != null else Vector2.ZERO
+	var sx := scale_x_val * zoom
+	var sy := scale_y_val * zoom
+	var v_rect := get_transformed_visual_rect(center, tex_sz, rot_deg, sx, sy, cell_size)
+
+	return {
+		"type": "border",
+		"side": side.to_lower(),
+		"index": index,
+		"asset": asset_id,
+		"rotation": rot_deg,
+		"offset": offset,
+		"scale_x": scale_x_val,
+		"scale_y": scale_y_val,
+		"scale": scale_x_val,
+		"mirror_x": false,
+		"mirror_y": false,
+		"center": center,
+		"rect": slot_rect,
+		"slot_rect": slot_rect,
+		"visual_rect": v_rect,
+		"texture": tex,
+		"tex_size": tex_sz,
+		"draw_scale_x": sx,
+		"draw_scale_y": sy
+	}
+
+static func get_corner_piece_transform(
+	stage: LaserStageData,
+	origin: Vector2,
+	cell_size: Vector2,
+	corner: String,
+	zoom: float = 1.0,
+	custom_data: Dictionary = {}
+) -> Dictionary:
+	var vis := custom_data
+	if vis.is_empty() and stage != null:
+		vis = stage.get_corner_visual(corner)
+
+	var asset_id := str(vis.get("asset", ""))
+	var rot_deg := float(vis.get("rotation", 0.0))
+	var mx := bool(vis.get("mirror_x", false))
+	var my := bool(vis.get("mirror_y", false))
+	var offset := float(vis.get("offset", 0.0))
+	var scale_x_val := float(vis.get("scale_x", vis.get("scale", 1.0)))
+	var scale_y_val := float(vis.get("scale_y", vis.get("scale", 1.0)))
+
+	var gw := stage.grid_width if stage != null else 1
+	var gh := stage.grid_height if stage != null else 1
+
+	var center := get_outer_corner_center(origin, cell_size, gw, gh, corner, offset * zoom)
+	var slot_rect := get_outer_corner_rect(origin, cell_size, gw, gh, corner, offset * zoom)
+
+	var tex: Texture2D = null
+	if not asset_id.is_empty() and stage != null:
+		tex = get_corner_asset_texture(stage, asset_id)
+
+	var tex_sz := tex.get_size() if tex != null else Vector2.ZERO
+	var sx := scale_x_val * zoom
+	var sy := scale_y_val * zoom
+	var v_rect := get_transformed_visual_rect(center, tex_sz, rot_deg, sx, sy, cell_size)
+
+	return {
+		"type": "corner",
+		"corner": corner.to_lower(),
+		"asset": asset_id,
+		"rotation": rot_deg,
+		"mirror_x": mx,
+		"mirror_y": my,
+		"offset": offset,
+		"scale_x": scale_x_val,
+		"scale_y": scale_y_val,
+		"scale": scale_x_val,
+		"center": center,
+		"rect": slot_rect,
+		"slot_rect": slot_rect,
+		"visual_rect": v_rect,
+		"texture": tex,
+		"tex_size": tex_sz,
+		"draw_scale_x": sx,
+		"draw_scale_y": sy
+	}
 
 static func get_border_pieces(
 	stage: LaserStageData,
 	origin: Vector2,
-	cell_size: Vector2
+	cell_size: Vector2,
+	zoom: float = 1.0
 ) -> Array[Dictionary]:
 	var pieces: Array[Dictionary] = []
 	if stage == null:
@@ -264,21 +439,11 @@ static func get_border_pieces(
 		var side := str(bv.get("side", "top")).to_lower()
 		var index := int(bv.get("index", 0))
 		var asset_id := str(bv.get("asset", ""))
-		var rot_deg := float(bv.get("rotation", 0.0))
 		if asset_id.is_empty():
 			continue
 
-		var rect := get_perimeter_border_rect(origin, cell_size, stage.grid_width, stage.grid_height, side, index)
-		pieces.append({
-			"type": "border",
-			"side": side,
-			"index": index,
-			"asset": asset_id,
-			"rect": rect,
-			"rotation": rot_deg,
-			"mirror_x": false,
-			"mirror_y": false
-		})
+		var piece := get_border_piece_transform(stage, origin, cell_size, side, index, zoom, bv)
+		pieces.append(piece)
 
 	# 2. Painted Outer 4 Corners
 	for k in stage.corner_visuals.keys():
@@ -287,22 +452,11 @@ static func get_border_pieces(
 			continue
 		var corner := str(cv.get("corner", k)).to_lower()
 		var asset_id := str(cv.get("asset", ""))
-		var rot_deg := float(cv.get("rotation", 0.0))
-		var mx := bool(cv.get("mirror_x", false))
-		var my := bool(cv.get("mirror_y", false))
 		if asset_id.is_empty():
 			continue
 
-		var rect := get_outer_corner_rect(origin, cell_size, stage.grid_width, stage.grid_height, corner)
-		pieces.append({
-			"type": "corner",
-			"corner": corner,
-			"asset": asset_id,
-			"rect": rect,
-			"rotation": rot_deg,
-			"mirror_x": mx,
-			"mirror_y": my
-		})
+		var piece := get_corner_piece_transform(stage, origin, cell_size, corner, zoom, cv)
+		pieces.append(piece)
 
 	return pieces
 
@@ -311,25 +465,31 @@ static func draw_borders(
 	stage: LaserStageData,
 	origin: Vector2,
 	cell_size: Vector2,
-	_zoom: float = 1.0
+	zoom: float = 1.0
 ) -> void:
 	if canvas == null or stage == null or not stage.border_enabled:
 		return
 
-	var pieces := get_border_pieces(stage, origin, cell_size)
+	var pieces := get_border_pieces(stage, origin, cell_size, zoom)
 	for p in pieces:
-		var tex: Texture2D = null
-		if str(p.get("type", "")) == "corner":
-			tex = get_corner_asset_texture(stage, str(p.get("asset", "")))
-		else:
-			tex = get_border_asset_texture(stage, str(p.get("asset", "")))
+		var tex: Texture2D = p.get("texture", null)
+		if tex == null:
+			if str(p.get("type", "")) == "corner":
+				tex = get_corner_asset_texture(stage, str(p.get("asset", "")))
+			else:
+				tex = get_border_asset_texture(stage, str(p.get("asset", "")))
 
 		if tex != null:
-			draw_cell_visual(
+			var piece_scale_x: float = float(p.get("draw_scale_x", float(p.get("scale_x", 1.0)) * zoom))
+			var piece_scale_y: float = float(p.get("draw_scale_y", float(p.get("scale_y", 1.0)) * zoom))
+			var center: Vector2 = p.get("center", Vector2.ZERO)
+			draw_border_or_corner_visual(
 				canvas,
-				p["rect"],
+				center,
 				tex,
 				float(p.get("rotation", 0.0)),
+				piece_scale_x,
+				piece_scale_y,
 				bool(p.get("mirror_x", false)),
 				bool(p.get("mirror_y", false))
 			)

@@ -834,7 +834,7 @@ func _init() -> void:
 	editor.inspector_panel.set_stage(sec21_st)
 	editor.inspector_panel.inspect_border_visual(sec21_st, "top", 1, sec21_st.get_border_visual("top", 1))
 	assert(editor.inspector_panel.sel_border_box.visible == true, "Selected border box must be visible")
-	assert(editor.inspector_panel.sel_border_lbl.text.contains("TOP Perimeter Segment 1"), "Label must show TOP Perimeter Segment 1")
+	assert(editor.inspector_panel.sel_border_lbl.text.contains("Top Segment 1"), "Label must show Top Segment 1")
 	editor.inspector_panel._on_sel_border_rot_changed(45.0)
 	assert(is_equal_approx(float(sec21_st.get_border_visual("top", 1)["rotation"]), 45.0), "In-place border rotation to 45.0° failed")
 
@@ -886,6 +886,297 @@ func _init() -> void:
 	print("✓ Gameplay logic is 100% independent of outer perimeter border and corner placement.")
 
 	print("✓ Section 21 Outer Perimeter Border & Corner workflow passed all tests successfully!")
+
+	# =========================================================================
+	# SECTION 22: BORDER & CORNER NON-STRETCHING RENDERING & OFFSET/SCALE TESTS
+	# =========================================================================
+	print("--- SECTION 22: Testing Border/Corner Non-Stretching & Offset/Scale System ---")
+	var sec22_st := LaserStageData.new()
+	sec22_st.grid_width = 6
+	sec22_st.grid_height = 4
+
+	var b_asset := "border_custom"
+	var c_asset := "corner_custom"
+
+	# 1. Test directional outward offsets and independent Scale X / Scale Y
+	# Top: offset moves upwards (y decreases), Scale X = 0.8, Scale Y = 1.4
+	sec22_st.set_border_visual("top", 0, b_asset, 0.0, 15.0, 0.8, 1.4)
+	# Bottom: offset moves downwards (y increases)
+	sec22_st.set_border_visual("bottom", 0, b_asset, 0.0, 20.0, 1.2, 0.7)
+	# Left: offset moves leftwards (x decreases)
+	sec22_st.set_border_visual("left", 0, b_asset, 0.0, 10.0, 1.0, 1.5)
+	# Right: offset moves rightwards (x increases)
+	sec22_st.set_border_visual("right", 0, b_asset, 0.0, 25.0, 1.5, 0.9)
+
+	# Corners directional outward offsets and independent Scale X / Scale Y
+	sec22_st.set_corner_visual("top_left", c_asset, 0.0, false, false, 12.0, 1.1, 0.9)
+	sec22_st.set_corner_visual("top_right", c_asset, 0.0, false, false, 14.0, 1.0, 1.0)
+	sec22_st.set_corner_visual("bottom_left", c_asset, 0.0, false, false, 16.0, 0.9, 1.3)
+	sec22_st.set_corner_visual("bottom_right", c_asset, 0.0, false, false, 18.0, 0.75, 1.35)
+
+	var s22_origin := Vector2(200.0, 200.0)
+	var csz := Vector2(48.0, 48.0)
+
+	# Verify Top border center with offset
+	var top_c_0 := BoardVisualGen.get_perimeter_border_center(s22_origin, csz, 6, 4, "top", 0, 0.0)
+	var top_c_off := BoardVisualGen.get_perimeter_border_center(s22_origin, csz, 6, 4, "top", 0, 15.0)
+	assert(top_c_off.x == top_c_0.x, "Top border X center must not change with offset")
+	assert(top_c_off.y == top_c_0.y - 15.0, "Top border Y center must move upwards by 15px")
+
+	# Verify Bottom border center with offset
+	var bot_c_0 := BoardVisualGen.get_perimeter_border_center(s22_origin, csz, 6, 4, "bottom", 0, 0.0)
+	var bot_c_off := BoardVisualGen.get_perimeter_border_center(s22_origin, csz, 6, 4, "bottom", 0, 20.0)
+	assert(bot_c_off.y == bot_c_0.y + 20.0, "Bottom border Y center must move downwards by 20px")
+
+	# Verify Left border center with offset
+	var left_c_0 := BoardVisualGen.get_perimeter_border_center(s22_origin, csz, 6, 4, "left", 0, 0.0)
+	var left_c_off := BoardVisualGen.get_perimeter_border_center(s22_origin, csz, 6, 4, "left", 0, 10.0)
+	assert(left_c_off.x == left_c_0.x - 10.0, "Left border X center must move leftwards by 10px")
+
+	# Verify Right border center with offset
+	var right_c_0 := BoardVisualGen.get_perimeter_border_center(s22_origin, csz, 6, 4, "right", 0, 0.0)
+	var right_c_off := BoardVisualGen.get_perimeter_border_center(s22_origin, csz, 6, 4, "right", 0, 25.0)
+	assert(right_c_off.x == right_c_0.x + 25.0, "Right border X center must move rightwards by 25px")
+
+	# Verify Corner Centers with directional diagonal outward offsets
+	var tl_0 := BoardVisualGen.get_outer_corner_center(s22_origin, csz, 6, 4, "top_left", 0.0)
+	var tl_off := BoardVisualGen.get_outer_corner_center(s22_origin, csz, 6, 4, "top_left", 12.0)
+	assert(tl_off.x == tl_0.x - 12.0 and tl_off.y == tl_0.y - 12.0, "Top-left corner must shift diagonally top-left (-12, -12)")
+
+	var tr_0 := BoardVisualGen.get_outer_corner_center(s22_origin, csz, 6, 4, "top_right", 0.0)
+	var tr_off := BoardVisualGen.get_outer_corner_center(s22_origin, csz, 6, 4, "top_right", 14.0)
+	assert(tr_off.x == tr_0.x + 14.0 and tr_off.y == tr_0.y - 14.0, "Top-right corner must shift diagonally top-right (+14, -14)")
+
+	var bl_0 := BoardVisualGen.get_outer_corner_center(s22_origin, csz, 6, 4, "bottom_left", 0.0)
+	var bl_off := BoardVisualGen.get_outer_corner_center(s22_origin, csz, 6, 4, "bottom_left", 16.0)
+	assert(bl_off.x == bl_0.x - 16.0 and bl_off.y == bl_0.y + 16.0, "Bottom-left corner must shift diagonally bottom-left (-16, +16)")
+
+	var br_0 := BoardVisualGen.get_outer_corner_center(s22_origin, csz, 6, 4, "bottom_right", 0.0)
+	var br_off := BoardVisualGen.get_outer_corner_center(s22_origin, csz, 6, 4, "bottom_right", 18.0)
+	assert(br_off.x == br_0.x + 18.0 and br_off.y == br_0.y + 18.0, "Bottom-right corner must shift diagonally bottom-right (+18, +18)")
+	print("✓ Directional normal outward offsets for all 4 perimeter borders and 4 corners verified.")
+
+	# 2. Verify get_border_pieces includes center, offset, scale_x, scale_y
+	var s22_pieces := BoardVisualGen.get_border_pieces(sec22_st, s22_origin, csz)
+	assert(s22_pieces.size() == 8, "Expected 8 pieces (4 borders + 4 corners)")
+	for p in s22_pieces:
+		assert(p.has("center"), "Piece must contain 'center' point")
+		assert(p.has("offset"), "Piece must contain 'offset'")
+		assert(p.has("scale_x") and p.has("scale_y"), "Piece must contain independent scale_x and scale_y")
+		assert(p["scale_x"] > 0.0 and p["scale_y"] > 0.0, "Scale X and Y must be positive")
+	print("✓ BoardVisualGenerator.get_border_pieces provides independent scale_x, scale_y and offset metadata.")
+
+	# 3. Verify Inspector in-place offset, scale_x & scale_y updates
+	editor.inspector_panel.set_stage(sec22_st)
+	var tb_vis := sec22_st.get_border_visual("top", 0)
+	editor.inspector_panel.inspect_border_visual(sec22_st, "top", 0, tb_vis)
+	assert(is_equal_approx(editor.inspector_panel.sel_border_offset_spin.value, 15.0), "Inspector offset value mismatch")
+	assert(is_equal_approx(editor.inspector_panel.sel_border_scale_x_spin.value, 0.8), "Inspector Scale X mismatch")
+	assert(is_equal_approx(editor.inspector_panel.sel_border_scale_y_spin.value, 1.4), "Inspector Scale Y mismatch")
+
+	# Test fine-grained scale precision such as 0.07
+	editor.inspector_panel._on_sel_border_scale_x_changed(0.07)
+	assert(is_equal_approx(float(sec22_st.get_border_visual("top", 0)["scale_x"]), 0.07), "Setting Scale X to 0.07 failed")
+
+	editor.inspector_panel._on_sel_border_offset_changed(30.0)
+	assert(is_equal_approx(float(sec22_st.get_border_visual("top", 0)["offset"]), 30.0), "In-place border offset modification failed")
+
+	editor.inspector_panel._on_sel_border_scale_x_changed(2.5)
+	editor.inspector_panel._on_sel_border_scale_y_changed(3.5)
+	assert(is_equal_approx(float(sec22_st.get_border_visual("top", 0)["scale_x"]), 2.5), "In-place border Scale X modification failed")
+	assert(is_equal_approx(float(sec22_st.get_border_visual("top", 0)["scale_y"]), 3.5), "In-place border Scale Y modification failed")
+
+	editor.inspector_panel.inspect_corner_visual(sec22_st, "bottom_right", sec22_st.get_corner_visual("bottom_right"))
+	assert(is_equal_approx(editor.inspector_panel.sel_corner_offset_spin.value, 18.0), "Inspector corner offset value mismatch")
+	assert(is_equal_approx(editor.inspector_panel.sel_corner_scale_x_spin.value, 0.75), "Inspector corner Scale X mismatch")
+	assert(is_equal_approx(editor.inspector_panel.sel_corner_scale_y_spin.value, 1.35), "Inspector corner Scale Y mismatch")
+
+	editor.inspector_panel._on_sel_corner_scale_x_changed(0.07)
+	assert(is_equal_approx(float(sec22_st.get_corner_visual("bottom_right")["scale_x"]), 0.07), "Setting corner Scale X to 0.07 failed")
+
+	editor.inspector_panel._on_sel_corner_offset_changed(22.5)
+	assert(is_equal_approx(float(sec22_st.get_corner_visual("bottom_right")["offset"]), 22.5), "In-place corner offset modification failed")
+
+	editor.inspector_panel._on_sel_corner_scale_x_changed(0.6)
+	editor.inspector_panel._on_sel_corner_scale_y_changed(1.8)
+	assert(is_equal_approx(float(sec22_st.get_corner_visual("bottom_right")["scale_x"]), 0.6), "In-place corner Scale X modification failed")
+	assert(is_equal_approx(float(sec22_st.get_corner_visual("bottom_right")["scale_y"]), 1.8), "In-place corner Scale Y modification failed")
+	print("✓ InspectorPanel in-place editing of independent Scale X, Scale Y, and offset verified.")
+
+	# 4. Verify Serialization of offset, scale_x and scale_y
+	var s_dict := sec22_st.to_dict()
+	var restored := LaserStageData.from_dict(s_dict)
+	var top_restored := restored.get_border_visual("top", 0)
+	assert(is_equal_approx(float(top_restored["offset"]), 30.0), "Restored border offset failed")
+	assert(is_equal_approx(float(top_restored["scale_x"]), 2.5), "Restored border Scale X failed")
+	assert(is_equal_approx(float(top_restored["scale_y"]), 3.5), "Restored border Scale Y failed")
+
+	var br_restored := restored.get_corner_visual("bottom_right")
+	assert(is_equal_approx(float(br_restored["offset"]), 22.5), "Restored corner offset failed")
+	assert(is_equal_approx(float(br_restored["scale_x"]), 0.6), "Restored corner Scale X failed")
+	assert(is_equal_approx(float(br_restored["scale_y"]), 1.8), "Restored corner Scale Y failed")
+
+	# Legacy single scale restoration test
+	var legacy_dict: Dictionary = {
+		"grid_width": 5,
+		"grid_height": 5,
+		"border_visuals": { "top,0": { "asset": "border_1", "rotation": 0.0, "offset": 5.0, "scale": 1.7 } },
+		"corner_visuals": { "top_left": { "asset": "corner_1", "rotation": 0.0, "offset": 5.0, "scale": 1.7 } }
+	}
+	var legacy_restored := LaserStageData.from_dict(legacy_dict)
+	assert(is_equal_approx(float(legacy_restored.get_border_visual("top", 0)["scale_x"]), 1.7), "Legacy scale_x restoration failed")
+	assert(is_equal_approx(float(legacy_restored.get_border_visual("top", 0)["scale_y"]), 1.7), "Legacy scale_y restoration failed")
+	assert(is_equal_approx(float(legacy_restored.get_corner_visual("top_left")["scale_x"]), 1.7), "Legacy corner scale_x restoration failed")
+	assert(is_equal_approx(float(legacy_restored.get_corner_visual("top_left")["scale_y"]), 1.7), "Legacy corner scale_y restoration failed")
+	# 5. Verify Transformed Hit Testing & Selection Alignment (Offset = -10, Scale = 0.07, Rotation = 90°)
+	var hit_st := LaserStageData.new()
+	hit_st.grid_width = 5
+	hit_st.grid_height = 5
+	hit_st.stage_index = 1
+	hit_st.set_border_visual("top", 0, "border_1", 90.0, -10.0, 0.07, 0.07)
+	hit_st.set_border_visual("bottom", 1, "border_1", 90.0, -10.0, 0.07, 0.07)
+	hit_st.set_border_visual("left", 2, "border_1", 90.0, -10.0, 0.07, 0.07)
+	hit_st.set_border_visual("right", 3, "border_1", 90.0, -10.0, 0.07, 0.07)
+
+	editor.grid_canvas.set_stage(hit_st)
+	var canvas_origin: Vector2 = editor.grid_canvas.pan_offset
+	var canvas_csz := Vector2(editor.grid_canvas.cell_size * editor.grid_canvas.zoom_level, editor.grid_canvas.cell_size * editor.grid_canvas.zoom_level)
+
+	# Verify Top border transform center and hit testing at -10 offset
+	var top_t := BoardVisualGen.get_border_piece_transform(hit_st, canvas_origin, canvas_csz, "top", 0, editor.grid_canvas.zoom_level)
+	var hit_res := editor.grid_canvas.screen_to_stage_and_perimeter_border(top_t.center)
+	assert(hit_res.inside == true, "Must hit placed top border at its visual center")
+	assert(hit_res.side == "top" and hit_res.index == 0, "Hit result must identify top segment 0")
+	assert(hit_res.is_placed == true, "Must be identified as placed border")
+
+	# Verify Bottom border at -10 offset
+	var bot_t := BoardVisualGen.get_border_piece_transform(hit_st, canvas_origin, canvas_csz, "bottom", 1, editor.grid_canvas.zoom_level)
+	var bot_hit := editor.grid_canvas.screen_to_stage_and_perimeter_border(bot_t.center)
+	assert(bot_hit.inside == true and bot_hit.side == "bottom" and bot_hit.index == 1, "Must hit bottom border at offset center")
+
+	# Verify Left border at -10 offset
+	var left_t := BoardVisualGen.get_border_piece_transform(hit_st, canvas_origin, canvas_csz, "left", 2, editor.grid_canvas.zoom_level)
+	var left_hit := editor.grid_canvas.screen_to_stage_and_perimeter_border(left_t.center)
+	assert(left_hit.inside == true and left_hit.side == "left" and left_hit.index == 2, "Must hit left border at offset center")
+
+	# Verify Right border at -10 offset
+	var right_t := BoardVisualGen.get_border_piece_transform(hit_st, canvas_origin, canvas_csz, "right", 3, editor.grid_canvas.zoom_level)
+	var right_hit := editor.grid_canvas.screen_to_stage_and_perimeter_border(right_t.center)
+	assert(right_hit.inside == true and right_hit.side == "right" and right_hit.index == 3, "Must hit right border at offset center")
+
+	# Verify changing offset (-5, 0, 5, 10) dynamically updates transform and hit test together
+	for test_off in [-5.0, 0.0, 5.0, 10.0]:
+		hit_st.set_border_visual("top", 0, "border_1", 90.0, test_off, 0.07, 0.07)
+		var dyn_t := BoardVisualGen.get_border_piece_transform(hit_st, canvas_origin, canvas_csz, "top", 0, editor.grid_canvas.zoom_level)
+		var dyn_hit := editor.grid_canvas.screen_to_stage_and_perimeter_border(dyn_t.center)
+		assert(dyn_hit.inside == true and dyn_hit.side == "top" and dyn_hit.index == 0, "Must hit dynamically moved border at offset %.1f" % test_off)
+
+	print("✓ Unified final transform for render, hit-test, selection, and offset across all 4 sides verified.")
+
+	print("✓ Section 22 Border & Corner Non-Stretching & Offset/Scale system passed all tests successfully!")
+
+	# =========================================================================
+	# SECTION 23: Testing Refactored 3-Tab Tiles Inspector & Decimal Precision
+	# =========================================================================
+	print("--- SECTION 23: Testing Refactored 3-Tab Tiles Inspector & Decimal Precision ---")
+	var insp := editor.inspector_panel
+
+	# 1. Verify 3-Tab Buttons & Structure
+	assert(insp.tile_subtab_default_btn != null, "DEFAULT tab button must exist")
+	assert(insp.tile_subtab_borders_btn != null, "BORDERS tab button must exist")
+	assert(insp.tile_subtab_corners_btn != null, "CORNERS tab button must exist")
+	assert(insp.tile_default_box != null, "tile_default_box container must exist")
+	assert(insp.tile_borders_box != null, "tile_borders_box container must exist")
+	assert(insp.tile_corners_box != null, "tile_corners_box container must exist")
+
+	# 2. Verify Tab Switching & Exclusivity
+	insp._switch_tiles_subtab(0)
+	assert(insp.tile_default_box.visible == true, "DEFAULT box must be visible")
+	assert(insp.tile_borders_box.visible == false, "BORDERS box must be hidden")
+	assert(insp.tile_corners_box.visible == false, "CORNERS box must be hidden")
+	assert(insp.tile_subtab_default_btn.button_pressed == true, "DEFAULT button pressed")
+
+	insp._switch_tiles_subtab(1)
+	assert(insp.tile_default_box.visible == false, "DEFAULT box must be hidden")
+	assert(insp.tile_borders_box.visible == true, "BORDERS box must be visible")
+	assert(insp.tile_corners_box.visible == false, "CORNERS box must be hidden")
+	assert(insp.tile_subtab_borders_btn.button_pressed == true, "BORDERS button pressed")
+
+	insp._switch_tiles_subtab(2)
+	assert(insp.tile_default_box.visible == false, "DEFAULT box must be hidden")
+	assert(insp.tile_borders_box.visible == false, "BORDERS box must be hidden")
+	assert(insp.tile_corners_box.visible == true, "CORNERS box must be visible")
+	assert(insp.tile_subtab_corners_btn.button_pressed == true, "CORNERS button pressed")
+	print("✓ 3-Tab layout navigation and mutually exclusive visibility verified.")
+
+	# 3. Verify Auto-Switching on Selection
+	var sec23_st := LaserStageData.new()
+	sec23_st.grid_width = 5
+	sec23_st.grid_height = 5
+	sec23_st.set_cell_visual(Vector2i(1, 1), "cell_1", 45.0)
+	sec23_st.set_border_visual("top", 2, "border_1", 90.0, -0.007, 0.068, 0.081)
+	sec23_st.set_corner_visual("top_left", "corner_1", 37.5, true, false, 0.025, 0.75, 1.25)
+	insp.set_stage(sec23_st)
+
+	# Select Cell -> Should switch to DEFAULT (tab 0)
+	insp.inspect_cell_visual(sec23_st, Vector2i(1, 1), sec23_st.get_cell_visual(Vector2i(1, 1)))
+	assert(insp.current_tiles_subtab == 0 and insp.tile_default_box.visible == true, "inspect_cell_visual must auto-switch to DEFAULT tab")
+
+	# Select Border -> Should switch to BORDERS (tab 1)
+	insp.inspect_border_visual(sec23_st, "top", 2, sec23_st.get_border_visual("top", 2))
+	assert(insp.current_tiles_subtab == 1 and insp.tile_borders_box.visible == true, "inspect_border_visual must auto-switch to BORDERS tab")
+
+	# Select Corner -> Should switch to CORNERS (tab 2)
+	insp.inspect_corner_visual(sec23_st, "top_left", sec23_st.get_corner_visual("top_left"))
+	assert(insp.current_tiles_subtab == 2 and insp.tile_corners_box.visible == true, "inspect_corner_visual must auto-switch to CORNERS tab")
+	print("✓ Contextual auto-switching on Cell, Border, and Corner selection verified.")
+
+	# 4. Verify Decimal Precision for Offset and Scale (step = 0.001)
+	assert(is_equal_approx(insp.active_border_offset_spin.step, 0.001), "active_border_offset_spin step must be 0.001")
+	assert(is_equal_approx(insp.sel_border_offset_spin.step, 0.001), "sel_border_offset_spin step must be 0.001")
+	assert(is_equal_approx(insp.active_corner_offset_spin.step, 0.001), "active_corner_offset_spin step must be 0.001")
+	assert(is_equal_approx(insp.sel_corner_offset_spin.step, 0.001), "sel_corner_offset_spin step must be 0.001")
+	assert(is_equal_approx(insp.active_border_scale_x_spin.step, 0.001), "active_border_scale_x_spin step must be 0.001")
+	assert(is_equal_approx(insp.active_border_scale_y_spin.step, 0.001), "active_border_scale_y_spin step must be 0.001")
+
+	# Test small decimal offset and scale editing
+	insp.inspect_border_visual(sec23_st, "top", 2, sec23_st.get_border_visual("top", 2))
+	assert(is_equal_approx(insp.sel_border_offset_spin.value, -0.007), "Selected border offset -0.007 must be preserved exactly")
+	assert(is_equal_approx(insp.sel_border_scale_x_spin.value, 0.068), "Selected border Scale X 0.068 must be preserved exactly")
+	assert(is_equal_approx(insp.sel_border_scale_y_spin.value, 0.081), "Selected border Scale Y 0.081 must be preserved exactly")
+
+	# Modify with positive small decimal 0.007
+	insp._on_sel_border_offset_changed(0.007)
+	assert(is_equal_approx(float(sec23_st.get_border_visual("top", 2)["offset"]), 0.007), "Border offset modification to 0.007 failed")
+
+	# Test Corner small decimal values
+	insp.inspect_corner_visual(sec23_st, "top_left", sec23_st.get_corner_visual("top_left"))
+	assert(is_equal_approx(insp.sel_corner_offset_spin.value, 0.025), "Selected corner offset 0.025 mismatch")
+	assert(is_equal_approx(insp.sel_corner_scale_x_spin.value, 0.75), "Selected corner Scale X 0.75 mismatch")
+	assert(is_equal_approx(insp.sel_corner_scale_y_spin.value, 1.25), "Selected corner Scale Y 1.25 mismatch")
+	assert(is_equal_approx(insp.sel_corner_rot_spin.value, 37.5), "Selected corner rotation 37.5 mismatch")
+	assert(insp.sel_corner_mx_chk.button_pressed == true, "Selected corner Mirror X mismatch")
+	assert(insp.sel_corner_my_chk.button_pressed == false, "Selected corner Mirror Y mismatch")
+	print("✓ Small decimal offsets (0.007, -0.007, 0.025) and independent scales (0.068, 0.081) verified.")
+
+	# 5. Verify Save and Load serialization of precise values
+	var s23_dict := sec23_st.to_dict()
+	var s23_loaded := LaserStageData.from_dict(s23_dict)
+	var loaded_b := s23_loaded.get_border_visual("top", 2)
+	assert(is_equal_approx(float(loaded_b["offset"]), 0.007), "Restored border offset 0.007 failed")
+	assert(is_equal_approx(float(loaded_b["scale_x"]), 0.068), "Restored border scale_x 0.068 failed")
+	assert(is_equal_approx(float(loaded_b["scale_y"]), 0.081), "Restored border scale_y 0.081 failed")
+
+	var loaded_c := s23_loaded.get_corner_visual("top_left")
+	assert(is_equal_approx(float(loaded_c["offset"]), 0.025), "Restored corner offset 0.025 failed")
+	assert(is_equal_approx(float(loaded_c["scale_x"]), 0.75), "Restored corner scale_x 0.75 failed")
+	assert(is_equal_approx(float(loaded_c["scale_y"]), 1.25), "Restored corner scale_y 1.25 failed")
+	assert(is_equal_approx(float(loaded_c["rotation"]), 37.5), "Restored corner rotation 37.5 failed")
+	assert(bool(loaded_c["mirror_x"]) == true, "Restored corner mirror_x failed")
+	assert(bool(loaded_c["mirror_y"]) == false, "Restored corner mirror_y failed")
+	print("✓ Full serialization and deserialization of exact decimal offset/scale/rot values verified.")
+
+	print("✓ Section 23 Refactored 3-Tab Tiles Inspector & Decimal Precision passed all tests successfully!")
 
 	print("--- ALL EDITOR BUTTONS, TOOLS, MODALS, AND PANELS ARE 100% OPERATIONAL! ---")
 	quit(0)

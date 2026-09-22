@@ -56,6 +56,9 @@ var selected_cell_visual_pos: Vector2i = Vector2i(-1, -1)
 # Outer Perimeter Border Visual Painting State
 var active_border_asset: String = "border_1"
 var active_border_rot: float = 0.0
+var active_border_offset: float = 0.0
+var active_border_scale_x: float = 1.0
+var active_border_scale_y: float = 1.0
 var hovered_border_side: String = ""
 var hovered_border_index: int = -1
 var selected_border_side: String = ""
@@ -66,6 +69,9 @@ var active_corner_asset: String = "corner_1"
 var active_corner_rot: float = 0.0
 var active_corner_mirror_x: bool = false
 var active_corner_mirror_y: bool = false
+var active_corner_offset: float = 0.0
+var active_corner_scale_x: float = 1.0
+var active_corner_scale_y: float = 1.0
 var hovered_corner_name: String = ""
 var selected_corner_name: String = ""
 
@@ -238,53 +244,112 @@ func screen_to_stage_and_cell(screen_pos: Vector2) -> Dictionary:
 func screen_to_stage_and_perimeter_border(screen_pos: Vector2) -> Dictionary:
 	var c_sz = cell_size * zoom_level
 	var visible_stages = stages if is_side_by_side else ([current_stage] if current_stage != null else [])
+	var sides = ["top", "bottom", "left", "right"]
 	for st in visible_stages:
 		if st == null:
 			continue
 		var r = get_stage_rect_in_cells(st.stage_index)
 		var board_pos = pan_offset + Vector2(r.position) * c_sz
 
-		# Top perimeter
-		for i in range(st.grid_width):
-			var rect := BoardVisualGenerator.get_perimeter_border_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, "top", i)
-			if rect.has_point(screen_pos):
-				return { "inside": true, "stage": st, "stage_idx": st.stage_index, "side": "top", "index": i, "rect": rect }
+		# 1. First test all PLACED border visuals with their actual transformed geometry
+		for side in sides:
+			var count = st.grid_width if (side == "top" or side == "bottom") else st.grid_height
+			for i in range(count):
+				if st.has_border_visual(side, i):
+					var t_info := BoardVisualGenerator.get_border_piece_transform(st, board_pos, Vector2(c_sz, c_sz), side, i, zoom_level)
+					var hit_rect: Rect2 = t_info.visual_rect.grow(max(4.0 * zoom_level, (c_sz * 0.5 - min(t_info.visual_rect.size.x, t_info.visual_rect.size.y) * 0.5)))
+					if hit_rect.has_point(screen_pos):
+						return {
+							"inside": true,
+							"stage": st,
+							"stage_idx": st.stage_index,
+							"side": side,
+							"index": i,
+							"rect": t_info.visual_rect,
+							"center": t_info.center,
+							"is_placed": true
+						}
 
-		# Bottom perimeter
-		for i in range(st.grid_width):
-			var rect := BoardVisualGenerator.get_perimeter_border_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, "bottom", i)
-			if rect.has_point(screen_pos):
-				return { "inside": true, "stage": st, "stage_idx": st.stage_index, "side": "bottom", "index": i, "rect": rect }
+		# 2. If no placed border is hit, test empty perimeter slots
+		for side in sides:
+			var count = st.grid_width if (side == "top" or side == "bottom") else st.grid_height
+			for i in range(count):
+				if not st.has_border_visual(side, i):
+					var off_val := (active_border_offset if current_tool == ToolMode.BORDER_PAINT else 0.0)
+					var t_info := BoardVisualGenerator.get_border_piece_transform(st, board_pos, Vector2(c_sz, c_sz), side, i, zoom_level, {
+						"asset": active_border_asset,
+						"rotation": active_border_rot,
+						"offset": off_val,
+						"scale_x": active_border_scale_x,
+						"scale_y": active_border_scale_y
+					})
+					var base_rect := BoardVisualGenerator.get_perimeter_border_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, side, i, off_val * zoom_level)
+					if base_rect.has_point(screen_pos) or t_info.visual_rect.has_point(screen_pos):
+						return {
+							"inside": true,
+							"stage": st,
+							"stage_idx": st.stage_index,
+							"side": side,
+							"index": i,
+							"rect": base_rect,
+							"center": t_info.center,
+							"is_placed": false
+						}
 
-		# Left perimeter
-		for i in range(st.grid_height):
-			var rect := BoardVisualGenerator.get_perimeter_border_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, "left", i)
-			if rect.has_point(screen_pos):
-				return { "inside": true, "stage": st, "stage_idx": st.stage_index, "side": "left", "index": i, "rect": rect }
-
-		# Right perimeter
-		for i in range(st.grid_height):
-			var rect := BoardVisualGenerator.get_perimeter_border_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, "right", i)
-			if rect.has_point(screen_pos):
-				return { "inside": true, "stage": st, "stage_idx": st.stage_index, "side": "right", "index": i, "rect": rect }
-
-	return { "inside": false, "stage": null, "stage_idx": -1, "side": "", "index": -1, "rect": Rect2() }
+	return { "inside": false, "stage": null, "stage_idx": -1, "side": "", "index": -1, "rect": Rect2(), "center": Vector2.ZERO, "is_placed": false }
 
 func screen_to_stage_and_outer_corner(screen_pos: Vector2) -> Dictionary:
 	var c_sz = cell_size * zoom_level
 	var visible_stages = stages if is_side_by_side else ([current_stage] if current_stage != null else [])
+	var corners = ["top_left", "top_right", "bottom_left", "bottom_right"]
 	for st in visible_stages:
 		if st == null:
 			continue
 		var r = get_stage_rect_in_cells(st.stage_index)
 		var board_pos = pan_offset + Vector2(r.position) * c_sz
-		var corners = ["top_left", "top_right", "bottom_left", "bottom_right"]
-		for c_name in corners:
-			var rect := BoardVisualGenerator.get_outer_corner_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, c_name)
-			if rect.has_point(screen_pos):
-				return { "inside": true, "stage": st, "stage_idx": st.stage_index, "corner": c_name, "rect": rect }
 
-	return { "inside": false, "stage": null, "stage_idx": -1, "corner": "", "rect": Rect2() }
+		# 1. First test all PLACED corner visuals
+		for c_name in corners:
+			if st.has_corner_visual(c_name):
+				var t_info := BoardVisualGenerator.get_corner_piece_transform(st, board_pos, Vector2(c_sz, c_sz), c_name, zoom_level)
+				var hit_rect: Rect2 = t_info.visual_rect.grow(max(4.0 * zoom_level, (c_sz * 0.5 - min(t_info.visual_rect.size.x, t_info.visual_rect.size.y) * 0.5)))
+				if hit_rect.has_point(screen_pos):
+					return {
+						"inside": true,
+						"stage": st,
+						"stage_idx": st.stage_index,
+						"corner": c_name,
+						"rect": t_info.visual_rect,
+						"center": t_info.center,
+						"is_placed": true
+					}
+
+		# 2. Test empty corner slots
+		for c_name in corners:
+			if not st.has_corner_visual(c_name):
+				var off_val := (active_corner_offset if current_tool == ToolMode.CORNER_PAINT else 0.0)
+				var t_info := BoardVisualGenerator.get_corner_piece_transform(st, board_pos, Vector2(c_sz, c_sz), c_name, zoom_level, {
+					"asset": active_corner_asset,
+					"rotation": active_corner_rot,
+					"mirror_x": active_corner_mirror_x,
+					"mirror_y": active_corner_mirror_y,
+					"offset": off_val,
+					"scale_x": active_corner_scale_x,
+					"scale_y": active_corner_scale_y
+				})
+				var base_rect := BoardVisualGenerator.get_outer_corner_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, c_name, off_val * zoom_level)
+				if base_rect.has_point(screen_pos) or t_info.visual_rect.has_point(screen_pos):
+					return {
+						"inside": true,
+						"stage": st,
+						"stage_idx": st.stage_index,
+						"corner": c_name,
+						"rect": base_rect,
+						"center": t_info.center,
+						"is_placed": false
+					}
+
+	return { "inside": false, "stage": null, "stage_idx": -1, "corner": "", "rect": Rect2(), "center": Vector2.ZERO, "is_placed": false }
 
 func stage_cell_to_screen(stage_idx: int, local_cell: Vector2i) -> Vector2:
 	var r = get_stage_rect_in_cells(stage_idx)
@@ -927,7 +992,7 @@ func _paint_border(st: LaserStageData, side: String, index: int) -> void:
 		st.ensure_default_visual_libraries()
 		if not st.border_assets.is_empty():
 			asset_str = str(st.border_assets[0].get("id", "border_1"))
-	st.set_border_visual(side, index, asset_str, active_border_rot)
+	st.set_border_visual(side, index, asset_str, active_border_rot, active_border_offset, active_border_scale_x, active_border_scale_y)
 	selected_border_side = side
 	selected_border_index = index
 	border_visual_selected.emit(st, side, index, st.get_border_visual(side, index))
@@ -959,7 +1024,7 @@ func _paint_corner(st: LaserStageData, corner: String) -> void:
 		st.ensure_default_visual_libraries()
 		if not st.corner_assets.is_empty():
 			asset_str = str(st.corner_assets[0].get("id", "corner_1"))
-	st.set_corner_visual(corner, asset_str, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y)
+	st.set_corner_visual(corner, asset_str, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y, active_corner_offset, active_corner_scale_x, active_corner_scale_y)
 	selected_corner_name = corner
 	corner_visual_selected.emit(st, corner, st.get_corner_visual(corner))
 	if undo_manager != null and snap != null:
@@ -1119,13 +1184,15 @@ func _draw() -> void:
 
 		# Selected Border Visual Highlight
 		if is_active and not selected_border_side.is_empty() and selected_border_index >= 0 and st.has_border_visual(selected_border_side, selected_border_index):
-			var bv_rect := BoardVisualGenerator.get_perimeter_border_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, selected_border_side, selected_border_index)
+			var t_info := BoardVisualGenerator.get_border_piece_transform(st, board_pos, Vector2(c_sz, c_sz), selected_border_side, selected_border_index, zoom_level)
+			var bv_rect: Rect2 = t_info.rect.grow(2.0 * zoom_level)
 			draw_rect(bv_rect, Color(1.0, 0.85, 0.1, 0.25))
 			draw_rect(bv_rect, Color(1.0, 0.85, 0.1, 1.0), false, 2.5 * zoom_level)
 
 		# Selected Corner Visual Highlight
 		if is_active and not selected_corner_name.is_empty() and st.has_corner_visual(selected_corner_name):
-			var crn_rect := BoardVisualGenerator.get_outer_corner_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, selected_corner_name)
+			var t_info := BoardVisualGenerator.get_corner_piece_transform(st, board_pos, Vector2(c_sz, c_sz), selected_corner_name, zoom_level)
+			var crn_rect: Rect2 = t_info.rect.grow(2.0 * zoom_level)
 			draw_rect(crn_rect, Color(1.0, 0.85, 0.1, 0.25))
 			draw_rect(crn_rect, Color(1.0, 0.85, 0.1, 1.0), false, 2.5 * zoom_level)
 
@@ -1136,28 +1203,56 @@ func _draw() -> void:
 
 		# Outer Perimeter Corner Paint/Erase Previews and Hover
 		if is_active and not hovered_corner_name.is_empty() and (current_tool == ToolMode.CORNER_PAINT or current_tool == ToolMode.CORNER_ERASE or current_tool == ToolMode.SELECT):
-			var crn_preview_rect := BoardVisualGenerator.get_outer_corner_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, hovered_corner_name)
+			var is_placed := st.has_corner_visual(hovered_corner_name)
+			var t_info: Dictionary
+			if current_tool == ToolMode.CORNER_PAINT and not is_placed:
+				t_info = BoardVisualGenerator.get_corner_piece_transform(st, board_pos, Vector2(c_sz, c_sz), hovered_corner_name, zoom_level, {
+					"asset": active_corner_asset,
+					"rotation": active_corner_rot,
+					"mirror_x": active_corner_mirror_x,
+					"mirror_y": active_corner_mirror_y,
+					"offset": active_corner_offset,
+					"scale_x": active_corner_scale_x,
+					"scale_y": active_corner_scale_y
+				})
+			else:
+				t_info = BoardVisualGenerator.get_corner_piece_transform(st, board_pos, Vector2(c_sz, c_sz), hovered_corner_name, zoom_level)
+
+			var crn_preview_rect: Rect2 = t_info.rect.grow(2.0 * zoom_level)
 			if current_tool == ToolMode.CORNER_PAINT:
-				var c_tex: Texture2D = BoardVisualGenerator.get_corner_asset_texture(st, active_corner_asset)
+				var c_tex: Texture2D = t_info.get("texture", null)
 				if c_tex != null:
-					BoardVisualGenerator.draw_cell_visual(self, crn_preview_rect, c_tex, active_corner_rot, active_corner_mirror_x, active_corner_mirror_y, Color(1.0, 1.0, 1.0, 0.65))
+					BoardVisualGenerator.draw_border_or_corner_visual(self, t_info.center, c_tex, float(t_info.rotation), float(t_info.draw_scale_x), float(t_info.draw_scale_y), bool(t_info.mirror_x), bool(t_info.mirror_y), Color(1.0, 1.0, 1.0, 0.65))
 				draw_rect(crn_preview_rect, Color(1.0, 0.9, 0.2, 0.85), false, 2.0 * zoom_level)
-			elif current_tool == ToolMode.CORNER_ERASE:
+			elif current_tool == ToolMode.CORNER_ERASE and is_placed:
 				draw_rect(crn_preview_rect, Color(1.0, 0.2, 0.2, 0.65), false, 2.0 * zoom_level)
-			elif current_tool == ToolMode.SELECT and st.has_corner_visual(hovered_corner_name):
+			elif current_tool == ToolMode.SELECT and is_placed:
 				draw_rect(crn_preview_rect, Color(1.0, 1.0, 1.0, 0.25), false, 1.5 * zoom_level)
 
 		# Outer Perimeter Border Paint/Erase Previews and Hover
 		if is_active and not hovered_border_side.is_empty() and hovered_border_index >= 0 and (current_tool == ToolMode.BORDER_PAINT or current_tool == ToolMode.BORDER_ERASE or current_tool == ToolMode.SELECT):
-			var border_preview_rect := BoardVisualGenerator.get_perimeter_border_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, hovered_border_side, hovered_border_index)
+			var is_placed := st.has_border_visual(hovered_border_side, hovered_border_index)
+			var t_info: Dictionary
+			if current_tool == ToolMode.BORDER_PAINT and not is_placed:
+				t_info = BoardVisualGenerator.get_border_piece_transform(st, board_pos, Vector2(c_sz, c_sz), hovered_border_side, hovered_border_index, zoom_level, {
+					"asset": active_border_asset,
+					"rotation": active_border_rot,
+					"offset": active_border_offset,
+					"scale_x": active_border_scale_x,
+					"scale_y": active_border_scale_y
+				})
+			else:
+				t_info = BoardVisualGenerator.get_border_piece_transform(st, board_pos, Vector2(c_sz, c_sz), hovered_border_side, hovered_border_index, zoom_level)
+
+			var border_preview_rect: Rect2 = t_info.rect.grow(2.0 * zoom_level)
 			if current_tool == ToolMode.BORDER_PAINT:
-				var b_tex: Texture2D = BoardVisualGenerator.get_border_asset_texture(st, active_border_asset)
+				var b_tex: Texture2D = t_info.get("texture", null)
 				if b_tex != null:
-					BoardVisualGenerator.draw_cell_visual(self, border_preview_rect, b_tex, active_border_rot, false, false, Color(1.0, 1.0, 1.0, 0.65))
+					BoardVisualGenerator.draw_border_or_corner_visual(self, t_info.center, b_tex, float(t_info.rotation), float(t_info.draw_scale_x), float(t_info.draw_scale_y), false, false, Color(1.0, 1.0, 1.0, 0.65))
 				draw_rect(border_preview_rect, Color(1.0, 0.9, 0.2, 0.85), false, 2.0 * zoom_level)
-			elif current_tool == ToolMode.BORDER_ERASE:
+			elif current_tool == ToolMode.BORDER_ERASE and is_placed:
 				draw_rect(border_preview_rect, Color(1.0, 0.2, 0.2, 0.65), false, 2.0 * zoom_level)
-			elif current_tool == ToolMode.SELECT and st.has_border_visual(hovered_border_side, hovered_border_index):
+			elif current_tool == ToolMode.SELECT and is_placed:
 				draw_rect(border_preview_rect, Color(1.0, 1.0, 1.0, 0.25), false, 1.5 * zoom_level)
 
 		if hovered_stage_idx == st.stage_index and st.is_inside_grid(hovered_cell):
