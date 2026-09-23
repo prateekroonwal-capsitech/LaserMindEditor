@@ -8,6 +8,7 @@ const ObjectSpawner = preload("res://Game/Scripts/object_spawner.gd")
 const GridRenderer = preload("res://Game/Scripts/grid_renderer.gd")
 const BeamRenderer = preload("res://Game/Scripts/beam_renderer.gd")
 const ProceduralLaserObject = preload("res://Game/Scripts/procedural_object.gd")
+const HintDialogClass = preload("res://Game/Scripts/hint_dialog.gd")
 
 @export_group("Level Selection")
 @export var level_number: int = 1
@@ -54,6 +55,12 @@ var _transitioner: StageTransitioner = StageTransitioner.new()
 var _spawner: ObjectSpawner = ObjectSpawner.new()
 var _input_controller: GameInputController = GameInputController.new()
 var _clear_flash: ColorRect = null
+var hint_dialog: CanvasLayer = null
+var ui_layer: CanvasLayer = null
+var hint_button: Button = null
+
+func _init() -> void:
+	_setup_hint_ui()
 
 func _ready() -> void:
 	_init_components()
@@ -76,6 +83,7 @@ func _ready() -> void:
 
 func _init_components() -> void:
 	_setup_clear_flash()
+	_setup_hint_ui()
 
 	var prefab_map: Dictionary = {
 		LaserObjectData.ObjectType.LASER_SOURCE: laser_scene,
@@ -106,6 +114,92 @@ func _init_components() -> void:
 	_input_controller.object_dragged.connect(_on_object_modified)
 	_input_controller.drag_ended.connect(func(): recalculate_simulation())
 
+func _setup_hint_ui() -> void:
+	if hint_dialog == null:
+		hint_dialog = HintDialogClass.new()
+		add_child(hint_dialog)
+
+	if ui_layer == null:
+		ui_layer = CanvasLayer.new()
+		ui_layer.name = "UILayer"
+		ui_layer.layer = 5
+		add_child(ui_layer)
+
+	if hint_button == null:
+		hint_button = Button.new()
+		hint_button.name = "HintButton"
+		hint_button.text = "💡 HINT"
+		hint_button.custom_minimum_size = Vector2(170, 48)
+		hint_button.focus_mode = Control.FOCUS_NONE
+		hint_button.mouse_filter = Control.MOUSE_FILTER_STOP
+
+		var btn_norm := StyleBoxFlat.new()
+		btn_norm.bg_color = Color(0.16, 0.20, 0.28, 0.92)
+		btn_norm.border_color = Color(0.38, 0.70, 1.0, 0.85)
+		btn_norm.set_border_width_all(2)
+		btn_norm.set_corner_radius_all(24)
+		hint_button.add_theme_stylebox_override("normal", btn_norm)
+
+		var btn_hov := StyleBoxFlat.new()
+		btn_hov.bg_color = Color(0.22, 0.28, 0.40, 0.95)
+		btn_hov.border_color = Color(0.55, 0.85, 1.0, 1.0)
+		btn_hov.set_border_width_all(2)
+		btn_hov.set_corner_radius_all(24)
+		hint_button.add_theme_stylebox_override("hover", btn_hov)
+
+		var btn_press := StyleBoxFlat.new()
+		btn_press.bg_color = Color(0.12, 0.15, 0.22, 1.0)
+		btn_press.border_color = Color(0.30, 0.55, 0.85, 0.9)
+		btn_press.set_border_width_all(2)
+		btn_press.set_corner_radius_all(24)
+		hint_button.add_theme_stylebox_override("pressed", btn_press)
+
+		var btn_dis := StyleBoxFlat.new()
+		btn_dis.bg_color = Color(0.14, 0.16, 0.20, 0.4)
+		btn_dis.border_color = Color(0.30, 0.35, 0.42, 0.3)
+		btn_dis.set_border_width_all(1)
+		btn_dis.set_corner_radius_all(24)
+		hint_button.add_theme_stylebox_override("disabled", btn_dis)
+
+		hint_button.add_theme_color_override("font_color", Color(0.92, 0.96, 1.0))
+		hint_button.add_theme_color_override("font_hover_color", Color(1.0, 1.0, 1.0))
+		hint_button.add_theme_color_override("font_disabled_color", Color(0.5, 0.55, 0.62, 0.6))
+		hint_button.add_theme_font_size_override("font_size", 16)
+		hint_button.pressed.connect(_on_hint_button_pressed)
+		ui_layer.add_child(hint_button)
+
+func _on_hint_button_pressed() -> void:
+	if current_stage != null and hint_dialog != null:
+		hint_dialog.open_hint(current_stage)
+
+func _update_hint_button() -> void:
+	if hint_button == null:
+		_setup_hint_ui()
+	if hint_button == null:
+		return
+
+	var has_hint := current_stage != null and current_stage.hint_enabled and not current_stage.hint_path_points.is_empty()
+	hint_button.disabled = not has_hint
+	hint_button.modulate = Color(1.0, 1.0, 1.0, 1.0) if has_hint else Color(0.65, 0.65, 0.65, 0.6)
+	hint_button.tooltip_text = "View Laser Hint Path" if has_hint else "No hint available for this stage"
+
+	if current_stage == null:
+		return
+
+	var vp_size: Vector2 = get_viewport_rect().size if is_inside_tree() else Vector2(1080, 1920)
+	if vp_size.x <= 0 or vp_size.y <= 0:
+		vp_size = Vector2(1080, 1920)
+	var rect := BoardLayoutManager.compute_board_rect(grid_origin, cell_size, current_stage.grid_width, current_stage.grid_height)
+	var board_bottom: float = rect.position.y + rect.size.y
+	var btn_w: float = 170.0
+	var btn_h: float = 48.0
+
+	var bx: float = (vp_size.x - btn_w) * 0.5
+	var by: float = board_bottom + 18.0
+	by = clampf(by, board_bottom + 8.0, maxf(board_bottom + 8.0, vp_size.y - btn_h - 20.0))
+
+	hint_button.position = Vector2(bx, by)
+
 func _on_viewport_resized() -> void:
 	var vp_sz: Vector2 = get_viewport_rect().size
 	BoardLayoutManager.scale_background_to_viewport(background, vp_sz)
@@ -114,8 +208,14 @@ func _on_viewport_resized() -> void:
 		_auto_center_grid(current_stage)
 		_reposition_spawned_objects()
 		_update_renderers()
+	_update_hint_button()
+	if hint_dialog != null and hint_dialog.is_open():
+		hint_dialog._recalculate_layout()
+		hint_dialog.card.queue_redraw()
 
 func _unhandled_input(event: InputEvent) -> void:
+	if hint_dialog != null and hint_dialog.is_open():
+		return
 	_input_controller.handle_input(
 		event,
 		current_stage,
@@ -196,6 +296,7 @@ func load_stage(stage_num: int) -> void:
 
 	recalculate_simulation(true)
 	_redraw_grid()
+	_update_hint_button()
 
 func _spawn_and_register(obj: LaserObjectData, z_idx: int) -> void:
 	var node := _spawn_object(obj)
@@ -335,11 +436,13 @@ func _auto_center_grid(stage: LaserStageData) -> void:
 	_apply_board_layout()
 
 func _apply_board_layout() -> void:
-	if current_stage == null or board == null:
+	if current_stage == null:
 		return
-	var rect := BoardLayoutManager.compute_board_rect(grid_origin, cell_size, current_stage.grid_width, current_stage.grid_height)
-	board.position = rect.position
-	board.size = rect.size
+	if board != null:
+		var rect := BoardLayoutManager.compute_board_rect(grid_origin, cell_size, current_stage.grid_width, current_stage.grid_height)
+		board.position = rect.position
+		board.size = rect.size
+	_update_hint_button()
 
 func _reposition_spawned_objects() -> void:
 	if current_stage == null:

@@ -71,6 +71,45 @@ const TRANSITION_DIR_NAMES: Dictionary = {
 @export var border_visuals: Dictionary = {}
 @export var corner_visuals: Dictionary = {}
 
+# --- Visual-Only Hint Configuration ---
+@export var hint_enabled: bool = false
+@export var hint_laser_color: Color = Color(0.31, 0.76, 1.0, 1.0)
+@export var hint_laser_width: float = 4.0
+@export var hint_laser_opacity: float = 1.0
+@export var hint_path_points: Array[Vector2i] = []
+
+func clear_hint_path() -> void:
+	hint_path_points.clear()
+
+func add_hint_point(pt: Vector2i) -> void:
+	if not is_inside_grid(pt):
+		return
+	if not hint_path_points.is_empty() and hint_path_points[hint_path_points.size() - 1] == pt:
+		return
+	hint_path_points.append(pt)
+
+func remove_hint_point(pt: Vector2i) -> bool:
+	var idx := hint_path_points.find(pt)
+	if idx >= 0:
+		hint_path_points.remove_at(idx)
+		return true
+	return false
+
+func remove_hint_point_at_index(idx: int) -> bool:
+	if idx >= 0 and idx < hint_path_points.size():
+		hint_path_points.remove_at(idx)
+		return true
+	return false
+
+func set_hint_path(pts: Array[Vector2i]) -> void:
+	hint_path_points.clear()
+	for p in pts:
+		if is_inside_grid(p):
+			hint_path_points.append(p)
+
+func get_hint_points_count() -> int:
+	return hint_path_points.size()
+
 func ensure_default_visual_libraries() -> void:
 	if cell_assets.is_empty():
 		cell_assets = [
@@ -591,6 +630,11 @@ func duplicate_data() -> LaserStageData:
 	clone.corner_assets = corner_assets.duplicate(true)
 	clone.border_visuals = border_visuals.duplicate(true)
 	clone.corner_visuals = corner_visuals.duplicate(true)
+	clone.hint_enabled = hint_enabled
+	clone.hint_laser_color = hint_laser_color
+	clone.hint_laser_width = hint_laser_width
+	clone.hint_laser_opacity = hint_laser_opacity
+	clone.hint_path_points = hint_path_points.duplicate()
 	clone.board_margin_left = board_margin_left
 	clone.board_margin_top = board_margin_top
 	clone.board_margin_right = board_margin_right
@@ -613,6 +657,10 @@ func to_dict() -> Dictionary:
 	for obj in objects:
 		if obj != null:
 			objs_arr.append(obj.to_dict())
+	var hint_pts_arr: Array = []
+	for p in hint_path_points:
+		hint_pts_arr.append({"x": p.x, "y": p.y})
+
 	return {
 		"stage_index": stage_index,
 		"grid_width": grid_width,
@@ -640,6 +688,18 @@ func to_dict() -> Dictionary:
 		"corner_assets": corner_assets,
 		"border_visuals": border_visuals,
 		"corner_visuals": corner_visuals,
+		"hint": {
+			"enabled": hint_enabled,
+			"laser_color": "#%s" % hint_laser_color.to_html(false),
+			"laser_width": hint_laser_width,
+			"laser_opacity": hint_laser_opacity,
+			"path": hint_pts_arr
+		},
+		"hint_enabled": hint_enabled,
+		"hint_laser_color": "#%s" % hint_laser_color.to_html(false),
+		"hint_laser_width": hint_laser_width,
+		"hint_laser_opacity": hint_laser_opacity,
+		"hint_path_points": hint_pts_arr,
 		"border_settings": {
 			"enabled": border_enabled,
 			"horizontal": border_horizontal_edge_path,
@@ -725,6 +785,45 @@ static func from_dict(d: Dictionary) -> LaserStageData:
 			if not cv.has("scale_y"):
 				cv["scale_y"] = sc
 	st.ensure_default_visual_libraries()
+
+	# Hint Deserialization
+	var hint_d = d.get("hint", {})
+	if hint_d is Dictionary and not hint_d.is_empty():
+		st.hint_enabled = bool(hint_d.get("enabled", false))
+		var col_val = hint_d.get("laser_color", "#4FC3FF")
+		if col_val is String:
+			st.hint_laser_color = Color.from_string(col_val, Color(0.31, 0.76, 1.0, 1.0))
+		elif col_val is Color:
+			st.hint_laser_color = col_val
+		st.hint_laser_width = float(hint_d.get("laser_width", 4.0))
+		st.hint_laser_opacity = float(hint_d.get("laser_opacity", 1.0))
+		st.hint_path_points.clear()
+		var pts_raw = hint_d.get("path", [])
+		for pt in pts_raw:
+			if pt is Dictionary:
+				st.hint_path_points.append(Vector2i(int(pt.get("x", 0)), int(pt.get("y", 0))))
+			elif pt is Array and pt.size() >= 2:
+				st.hint_path_points.append(Vector2i(int(pt[0]), int(pt[1])))
+			elif pt is Vector2i:
+				st.hint_path_points.append(pt)
+	else:
+		st.hint_enabled = bool(d.get("hint_enabled", false))
+		var col_val = d.get("hint_laser_color", "#4FC3FF")
+		if col_val is String:
+			st.hint_laser_color = Color.from_string(col_val, Color(0.31, 0.76, 1.0, 1.0))
+		elif col_val is Color:
+			st.hint_laser_color = col_val
+		st.hint_laser_width = float(d.get("hint_laser_width", 4.0))
+		st.hint_laser_opacity = float(d.get("hint_laser_opacity", 1.0))
+		st.hint_path_points.clear()
+		var pts_raw = d.get("hint_path_points", [])
+		for pt in pts_raw:
+			if pt is Dictionary:
+				st.hint_path_points.append(Vector2i(int(pt.get("x", 0)), int(pt.get("y", 0))))
+			elif pt is Array and pt.size() >= 2:
+				st.hint_path_points.append(Vector2i(int(pt[0]), int(pt[1])))
+			elif pt is Vector2i:
+				st.hint_path_points.append(pt)
 
 	# If cell_visuals is empty but custom_tiles has items, populate cell_visuals
 	if st.cell_visuals.is_empty() and not st.custom_tiles.is_empty():

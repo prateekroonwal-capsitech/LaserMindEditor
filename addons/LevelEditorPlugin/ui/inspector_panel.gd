@@ -21,6 +21,9 @@ signal border_erase_selected()
 signal corner_visual_paint_selected(asset: String, rot_deg: float, mirror_x: bool, mirror_y: bool, offset: float, scale_x: float, scale_y: float)
 signal corner_visual_modified(stage: LaserStageData, corner: String, asset: String, rot_deg: float, mirror_x: bool, mirror_y: bool, offset: float, scale_x: float, scale_y: float)
 signal corner_erase_selected()
+signal hint_settings_changed(stage: LaserStageData)
+signal hint_tool_mode_requested(tool_mode: int)
+signal hint_mode_toggled(active: bool)
 
 const CUSTOM_TYPE_ID_BASE: int = 100
 
@@ -180,6 +183,21 @@ var coin_3_spin: SpinBox
 var coin_2_spin: SpinBox
 var coin_1_spin: SpinBox
 
+# --- Hint Section Controls ---
+var tab_hint_btn: Button
+var hint_section: VBoxContainer
+var hint_enable_chk: CheckBox
+var hint_color_btn: ColorPickerButton
+var hint_width_spin: SpinBox
+var hint_opacity_spin: SpinBox
+var hint_draw_btn: Button
+var hint_erase_btn: Button
+var hint_clear_btn: Button
+var hint_points_lbl: Label
+var hint_start_lbl: Label
+var hint_end_lbl: Label
+var hint_status_lbl: Label
+
 func _init() -> void:
 	custom_minimum_size = Vector2(240, 0)
 	size_flags_horizontal = Control.SIZE_FILL
@@ -247,6 +265,15 @@ func _setup_ui() -> void:
 	tab_tile_btn.add_theme_font_size_override("font_size", 11)
 	tab_tile_btn.pressed.connect(func(): _switch_tab(3))
 	tab_bar.add_child(tab_tile_btn)
+
+	tab_hint_btn = Button.new()
+	tab_hint_btn.text = "💡 Hint"
+	tab_hint_btn.toggle_mode = true
+	tab_hint_btn.button_group = tab_group
+	tab_hint_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	tab_hint_btn.add_theme_font_size_override("font_size", 11)
+	tab_hint_btn.pressed.connect(func(): _switch_tab(4))
+	tab_bar.add_child(tab_hint_btn)
 
 	obj_section = _create_section(main_vbox, "SELECTED OBJECT")
 
@@ -1322,6 +1349,139 @@ func _setup_ui() -> void:
 	coin_1_spin.max_value = 10000
 	lvl_section.add_child(coin_row)
 
+	# =========================================================================
+	# TAB 5: HINT (VISUAL-ONLY LASER HINT PATH)
+	# =========================================================================
+	hint_section = _create_section(main_vbox, "HINT")
+
+	var hint_hdr := Label.new()
+	hint_hdr.text = "LASER HINT"
+	hint_hdr.add_theme_font_size_override("font_size", 11)
+	hint_hdr.modulate = Color(0.4, 0.85, 1.0)
+	hint_section.add_child(hint_hdr)
+
+	var hint_info_note := Label.new()
+	hint_info_note.text = "Visual-only path configuration for Hint power-up."
+	hint_info_note.add_theme_font_size_override("font_size", 10)
+	hint_info_note.modulate = Color(0.7, 0.75, 0.8)
+	hint_info_note.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint_section.add_child(hint_info_note)
+
+	hint_enable_chk = CheckBox.new()
+	hint_enable_chk.text = "Enable Hint Path"
+	hint_enable_chk.toggled.connect(_on_hint_enable_toggled)
+	hint_section.add_child(hint_enable_chk)
+
+	var hint_color_row := HBoxContainer.new()
+	hint_color_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var hc_lbl := Label.new()
+	hc_lbl.text = "Laser Color:"
+	hc_lbl.add_theme_font_size_override("font_size", 11)
+	hint_color_row.add_child(hc_lbl)
+	hint_color_btn = ColorPickerButton.new()
+	hint_color_btn.custom_minimum_size = Vector2(50, 24)
+	hint_color_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hint_color_btn.color = Color(0.31, 0.76, 1.0, 1.0)
+	hint_color_btn.color_changed.connect(_on_hint_color_changed)
+	hint_color_row.add_child(hint_color_btn)
+	hint_section.add_child(hint_color_row)
+
+	var hint_w_row := HBoxContainer.new()
+	hint_w_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var hw_lbl := Label.new()
+	hw_lbl.text = "Laser Width:"
+	hw_lbl.add_theme_font_size_override("font_size", 11)
+	hint_w_row.add_child(hw_lbl)
+	hint_width_spin = SpinBox.new()
+	hint_width_spin.min_value = 0.5
+	hint_width_spin.max_value = 50.0
+	hint_width_spin.step = 0.5
+	hint_width_spin.value = 4.0
+	hint_width_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hint_width_spin.value_changed.connect(_on_hint_width_changed)
+	hint_w_row.add_child(hint_width_spin)
+	hint_section.add_child(hint_w_row)
+
+	var hint_op_row := HBoxContainer.new()
+	hint_op_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	var hop_lbl := Label.new()
+	hop_lbl.text = "Laser Opacity:"
+	hop_lbl.add_theme_font_size_override("font_size", 11)
+	hint_op_row.add_child(hop_lbl)
+	hint_opacity_spin = SpinBox.new()
+	hint_opacity_spin.min_value = 0.0
+	hint_opacity_spin.max_value = 1.0
+	hint_opacity_spin.step = 0.05
+	hint_opacity_spin.value = 1.0
+	hint_opacity_spin.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hint_opacity_spin.value_changed.connect(_on_hint_opacity_changed)
+	hint_op_row.add_child(hint_opacity_spin)
+	hint_section.add_child(hint_op_row)
+
+	var hint_tool_row := HBoxContainer.new()
+	hint_tool_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hint_tool_row.add_theme_constant_override("separation", 4)
+
+	var hint_tool_group := ButtonGroup.new()
+
+	hint_draw_btn = Button.new()
+	hint_draw_btn.text = "✏️ Draw Hint Path"
+	hint_draw_btn.toggle_mode = true
+	hint_draw_btn.button_group = hint_tool_group
+	hint_draw_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hint_draw_btn.tooltip_text = "Activate hint drawing mode. Click/drag on grid cells to draw the laser path."
+	hint_draw_btn.pressed.connect(_on_hint_draw_pressed)
+	hint_tool_row.add_child(hint_draw_btn)
+
+	hint_erase_btn = Button.new()
+	hint_erase_btn.text = "🧽 Erase Hint Path"
+	hint_erase_btn.toggle_mode = true
+	hint_erase_btn.button_group = hint_tool_group
+	hint_erase_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hint_erase_btn.tooltip_text = "Activate hint erase mode. Click on path points to remove them."
+	hint_erase_btn.pressed.connect(_on_hint_erase_pressed)
+	hint_tool_row.add_child(hint_erase_btn)
+	hint_section.add_child(hint_tool_row)
+
+	hint_clear_btn = Button.new()
+	hint_clear_btn.text = "❌ Clear Hint Path"
+	hint_clear_btn.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	hint_clear_btn.tooltip_text = "Remove the entire hint path for the current stage."
+	hint_clear_btn.pressed.connect(_on_hint_clear_pressed)
+	hint_section.add_child(hint_clear_btn)
+
+	hint_section.add_child(HSeparator.new())
+
+	var path_info_hdr := Label.new()
+	path_info_hdr.text = "HINT PATH"
+	path_info_hdr.add_theme_font_size_override("font_size", 11)
+	path_info_hdr.modulate = Color(1.0, 0.85, 0.35)
+	hint_section.add_child(path_info_hdr)
+
+	hint_points_lbl = Label.new()
+	hint_points_lbl.text = "Points: 0"
+	hint_points_lbl.add_theme_font_size_override("font_size", 11)
+	hint_section.add_child(hint_points_lbl)
+
+	hint_start_lbl = Label.new()
+	hint_start_lbl.text = "Path Start: (none)"
+	hint_start_lbl.add_theme_font_size_override("font_size", 11)
+	hint_start_lbl.modulate = Color(0.6, 0.9, 0.6)
+	hint_section.add_child(hint_start_lbl)
+
+	hint_end_lbl = Label.new()
+	hint_end_lbl.text = "Path End: (none)"
+	hint_end_lbl.add_theme_font_size_override("font_size", 11)
+	hint_end_lbl.modulate = Color(1.0, 0.6, 0.6)
+	hint_section.add_child(hint_end_lbl)
+
+	hint_status_lbl = Label.new()
+	hint_status_lbl.text = "Click grid cells to draw the laser path."
+	hint_status_lbl.add_theme_font_size_override("font_size", 10)
+	hint_status_lbl.modulate = Color(0.7, 0.75, 0.8)
+	hint_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	hint_section.add_child(hint_status_lbl)
+
 	_update_object_display()
 	_switch_tab(1)
 	_switch_tiles_subtab(0)
@@ -1334,6 +1494,8 @@ func _switch_tab(idx: int) -> void:
 	tab_lvl_btn.set_pressed_no_signal(idx == 2)
 	if tab_tile_btn != null:
 		tab_tile_btn.set_pressed_no_signal(idx == 3)
+	if tab_hint_btn != null:
+		tab_hint_btn.set_pressed_no_signal(idx == 4)
 	if obj_section != null:
 		obj_section.visible = (idx == 0)
 	if stage_section != null:
@@ -1342,6 +1504,9 @@ func _switch_tab(idx: int) -> void:
 		lvl_section.visible = (idx == 2)
 	if tile_section != null:
 		tile_section.visible = (idx == 3)
+	if hint_section != null:
+		hint_section.visible = (idx == 4)
+	hint_mode_toggled.emit(idx == 4)
 
 func _switch_tiles_subtab(idx: int) -> void:
 	current_tiles_subtab = idx
@@ -1420,6 +1585,7 @@ func set_stage(stage: LaserStageData) -> void:
 		if border_enable_chk != null:
 			border_enable_chk.set_pressed_no_signal(stage.border_enabled)
 		_refresh_tiles_ui()
+		update_hint_display()
 	if selected_object == null and tab_stage_btn != null and tab_obj_btn != null and tab_obj_btn.button_pressed:
 		_switch_tab(1)
 
@@ -2560,4 +2726,86 @@ func _on_sel_corner_remove_pressed() -> void:
 	current_selected_corner_name = ""
 	stage_settings_changed.emit(current_stage)
 	_update_corner_status()
+
+# =============================================================================
+# HINT PANEL LOGIC & EVENT HANDLERS
+# =============================================================================
+
+func update_hint_display() -> void:
+	if current_stage == null:
+		if hint_points_lbl != null:
+			hint_points_lbl.text = "Points: 0"
+		if hint_start_lbl != null:
+			hint_start_lbl.text = "Path Start: (none)"
+		if hint_end_lbl != null:
+			hint_end_lbl.text = "Path End: (none)"
+		return
+
+	if hint_enable_chk != null:
+		hint_enable_chk.set_pressed_no_signal(current_stage.hint_enabled)
+	if hint_color_btn != null:
+		hint_color_btn.color = current_stage.hint_laser_color
+	if hint_width_spin != null:
+		hint_width_spin.set_value_no_signal(current_stage.hint_laser_width)
+	if hint_opacity_spin != null:
+		hint_opacity_spin.set_value_no_signal(current_stage.hint_laser_opacity)
+
+	var pts: Array[Vector2i] = current_stage.hint_path_points
+	if hint_points_lbl != null:
+		hint_points_lbl.text = "Points: %d" % pts.size()
+	if hint_start_lbl != null:
+		if not pts.is_empty():
+			hint_start_lbl.text = "Path Start: (%d, %d)" % [pts[0].x, pts[0].y]
+		else:
+			hint_start_lbl.text = "Path Start: (none)"
+	if hint_end_lbl != null:
+		if not pts.is_empty():
+			hint_end_lbl.text = "Path End: (%d, %d)" % [pts[pts.size() - 1].x, pts[pts.size() - 1].y]
+		else:
+			hint_end_lbl.text = "Path End: (none)"
+
+func _on_hint_enable_toggled(enabled: bool) -> void:
+	if current_stage == null:
+		return
+	current_stage.hint_enabled = enabled
+	hint_settings_changed.emit(current_stage)
+	stage_settings_changed.emit(current_stage)
+
+func _on_hint_color_changed(col: Color) -> void:
+	if current_stage == null:
+		return
+	current_stage.hint_laser_color = col
+	hint_settings_changed.emit(current_stage)
+	stage_settings_changed.emit(current_stage)
+
+func _on_hint_width_changed(val: float) -> void:
+	if current_stage == null:
+		return
+	current_stage.hint_laser_width = val
+	hint_settings_changed.emit(current_stage)
+	stage_settings_changed.emit(current_stage)
+
+func _on_hint_opacity_changed(val: float) -> void:
+	if current_stage == null:
+		return
+	current_stage.hint_laser_opacity = val
+	hint_settings_changed.emit(current_stage)
+	stage_settings_changed.emit(current_stage)
+
+func _on_hint_draw_pressed() -> void:
+	# Mode 11 = ToolMode.HINT_DRAW
+	hint_tool_mode_requested.emit(11)
+
+func _on_hint_erase_pressed() -> void:
+	# Mode 12 = ToolMode.HINT_ERASE
+	hint_tool_mode_requested.emit(12)
+
+func _on_hint_clear_pressed() -> void:
+	if current_stage == null:
+		return
+	current_stage.clear_hint_path()
+	update_hint_display()
+	hint_settings_changed.emit(current_stage)
+	stage_settings_changed.emit(current_stage)
+
 

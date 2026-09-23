@@ -11,6 +11,7 @@ signal stage_activated(stage_index: int)
 signal cell_visual_selected(stage: LaserStageData, cell: Vector2i, visual_data: Dictionary)
 signal border_visual_selected(stage: LaserStageData, side: String, index: int, visual_data: Dictionary)
 signal corner_visual_selected(stage: LaserStageData, corner: String, visual_data: Dictionary)
+signal hint_path_modified(stage: LaserStageData)
 
 const BoardLayoutManager = preload("res://addons/LevelEditorPlugin/core/board_layout_helper.gd")
 const BoardVisualGenerator = preload("res://addons/LevelEditorPlugin/core/board_visual_generator.gd")
@@ -26,16 +27,20 @@ enum ToolMode {
 	BORDER_PAINT,
 	BORDER_ERASE,
 	CORNER_PAINT,
-	CORNER_ERASE
+	CORNER_ERASE,
+	HINT_DRAW,
+	HINT_ERASE
 }
 
 const STAGE_GAP_CELLS: int = 4
+const HINT_MODE_DIM_COLOR: Color = Color(0.0, 0.0, 0.0, 0.52)
 
 var current_level: LaserLevelData = null
 var stages: Array[LaserStageData] = []
 var current_stage: LaserStageData = null
 var current_stage_idx: int = 1
 var is_side_by_side: bool = true
+var is_hint_mode_active: bool = false
 
 var simulation_results: Dictionary = {}
 var simulation_result: Dictionary = {}
@@ -148,6 +153,16 @@ func set_side_by_side(enabled: bool) -> void:
 	is_side_by_side = enabled
 	recalculate_simulation()
 	zoom_to_fit()
+
+func set_hint_mode(active: bool) -> void:
+	if is_hint_mode_active != active:
+		is_hint_mode_active = active
+		if not active and (current_tool == ToolMode.HINT_DRAW or current_tool == ToolMode.HINT_ERASE):
+			current_tool = ToolMode.SELECT
+		queue_redraw()
+
+func is_hint_mode() -> bool:
+	return is_hint_mode_active
 
 func get_stage_by_index(idx: int) -> LaserStageData:
 	for st in stages:
@@ -558,6 +573,13 @@ func _gui_input(event: InputEvent) -> void:
 				_paint_corner(corner_hit.stage, corner_hit.corner)
 			elif current_tool == ToolMode.BORDER_PAINT and border_hit.inside:
 				_paint_border(border_hit.stage, border_hit.side, border_hit.index)
+			elif current_tool == ToolMode.HINT_DRAW and hit.inside and (hit.cell != last_painted_cell or hit.stage != last_painted_stage):
+				last_painted_cell = hit.cell
+				last_painted_stage = hit.stage
+				hit.stage.add_hint_point(hit.cell)
+				hint_path_modified.emit(hit.stage)
+				stage_dirty_needed.emit()
+				queue_redraw()
 			elif hit.inside and (hit.cell != last_painted_cell or hit.stage != last_painted_stage):
 				if current_tool == ToolMode.TILE_PAINT:
 					_paint_board_tile(hit.stage, hit.cell)
@@ -571,6 +593,13 @@ func _gui_input(event: InputEvent) -> void:
 				_erase_corner(corner_hit.stage, corner_hit.corner)
 			elif current_tool == ToolMode.BORDER_ERASE and border_hit.inside:
 				_erase_border(border_hit.stage, border_hit.side, border_hit.index)
+			elif current_tool == ToolMode.HINT_ERASE and hit.inside and (hit.cell != last_painted_cell or hit.stage != last_painted_stage):
+				last_painted_cell = hit.cell
+				last_painted_stage = hit.stage
+				if hit.stage.remove_hint_point(hit.cell):
+					hint_path_modified.emit(hit.stage)
+					stage_dirty_needed.emit()
+					queue_redraw()
 			elif hit.inside and (hit.cell != last_painted_cell or hit.stage != last_painted_stage):
 				if current_tool == ToolMode.TILE_ERASE:
 					_erase_board_tile(hit.stage, hit.cell)
@@ -843,6 +872,24 @@ func _handle_left_click(mb: InputEventMouseButton) -> void:
 			ToolMode.TILE_ERASE:
 				is_brush_erasing = true
 				_erase_board_tile(st, cell)
+
+			ToolMode.HINT_DRAW:
+				is_brush_painting = true
+				last_painted_cell = cell
+				last_painted_stage = st
+				st.add_hint_point(cell)
+				hint_path_modified.emit(st)
+				stage_dirty_needed.emit()
+				queue_redraw()
+
+			ToolMode.HINT_ERASE:
+				is_brush_erasing = true
+				last_painted_cell = cell
+				last_painted_stage = st
+				if st.remove_hint_point(cell):
+					hint_path_modified.emit(st)
+					stage_dirty_needed.emit()
+					queue_redraw()
 
 			ToolMode.MOVE:
 				var obj = st.get_object_at(cell)
@@ -1275,6 +1322,71 @@ func _draw() -> void:
 				draw_rect(h_rect, Color(1.0, 0.9, 0.2, 0.85), false, 2.0 * zoom_level)
 			elif current_tool == ToolMode.TILE_ERASE:
 				draw_rect(h_rect, Color(1.0, 0.2, 0.2, 0.6), false, 2.0 * zoom_level)
+
+		# -----------------------------------------------------------------
+		# Visual-Only Hint Mode Dark Tint Overlay & Hint Laser Path Rendering
+		# -----------------------------------------------------------------
+		if is_hint_mode():
+			var dim_rect := outer_bounds.grow(c_sz * 1.5)
+			draw_rect(dim_rect, HINT_MODE_DIM_COLOR)
+
+			if not st.hint_path_points.is_empty():
+				var h_pts: Array[Vector2i] = st.hint_path_points
+				var h_col: Color = st.hint_laser_color
+				var h_op: float = clampf(st.hint_laser_opacity, 0.0, 1.0)
+				var h_w: float = maxf(1.0, st.hint_laser_width) * zoom_level
+				var eff_col := Color(h_col.r, h_col.g, h_col.b, h_col.a * h_op)
+
+				# 1. Draw multi-layered laser path segments
+				if h_pts.size() >= 2:
+					for p_i in range(h_pts.size() - 1):
+						var pt_a: Vector2i = h_pts[p_i]
+						var pt_b: Vector2i = h_pts[p_i + 1]
+						var scr_a = board_pos + (Vector2(pt_a) + Vector2(0.5, 0.5)) * c_sz
+						var scr_b = board_pos + (Vector2(pt_b) + Vector2(0.5, 0.5)) * c_sz
+
+						# Outer glow
+						draw_line(scr_a, scr_b, Color(eff_col.r, eff_col.g, eff_col.b, eff_col.a * 0.35), h_w * 2.2, true)
+						# Main laser beam
+						draw_line(scr_a, scr_b, eff_col, h_w, true)
+						# Bright laser core
+						draw_line(scr_a, scr_b, Color(1.0, 1.0, 1.0, eff_col.a * 0.9), maxf(1.0, h_w * 0.35), true)
+
+				# 2. Draw node points (Start, End, and Intermediate)
+				for p_i in range(h_pts.size()):
+					var pt: Vector2i = h_pts[p_i]
+					var pt_scr = board_pos + (Vector2(pt) + Vector2(0.5, 0.5)) * c_sz
+					if p_i == 0:
+						# Start Point: Bright green ring + glow
+						draw_circle(pt_scr, 7.5 * zoom_level, Color(0.2, 1.0, 0.4, 0.35 * h_op))
+						draw_arc(pt_scr, 7.0 * zoom_level, 0.0, TAU, 16, Color(0.3, 1.0, 0.5, h_op), 2.0 * zoom_level)
+						draw_circle(pt_scr, 3.5 * zoom_level, Color(1.0, 1.0, 1.0, h_op))
+					elif p_i == h_pts.size() - 1:
+						# End Point: Bright red/orange target ring + glow
+						draw_circle(pt_scr, 7.5 * zoom_level, Color(1.0, 0.3, 0.3, 0.35 * h_op))
+						draw_arc(pt_scr, 7.0 * zoom_level, 0.0, TAU, 16, Color(1.0, 0.4, 0.3, h_op), 2.0 * zoom_level)
+						draw_circle(pt_scr, 3.5 * zoom_level, Color(1.0, 1.0, 1.0, h_op))
+					else:
+						# Intermediate Point: Clean circular node
+						draw_circle(pt_scr, 4.0 * zoom_level, Color(eff_col.r, eff_col.g, eff_col.b, 0.6 * h_op))
+						draw_circle(pt_scr, 2.0 * zoom_level, Color(1.0, 1.0, 1.0, 0.9 * h_op))
+
+			if hovered_stage_idx == st.stage_index and st.is_inside_grid(hovered_cell):
+				var h_rect := Rect2(board_pos + Vector2(hovered_cell) * c_sz, Vector2(c_sz, c_sz))
+				if current_tool == ToolMode.HINT_DRAW:
+					var h_col = st.hint_laser_color
+					var center = board_pos + (Vector2(hovered_cell) + Vector2(0.5, 0.5)) * c_sz
+					draw_rect(h_rect, Color(h_col.r, h_col.g, h_col.b, 0.25), true)
+					draw_rect(h_rect, Color(h_col.r, h_col.g, h_col.b, 0.9), false, 2.0 * zoom_level)
+					draw_circle(center, 6.0 * zoom_level, Color(h_col.r, h_col.g, h_col.b, 0.7))
+					draw_circle(center, 2.5 * zoom_level, Color.WHITE)
+				elif current_tool == ToolMode.HINT_ERASE:
+					draw_rect(h_rect, Color(1.0, 0.2, 0.2, 0.3), true)
+					draw_rect(h_rect, Color(1.0, 0.2, 0.2, 0.9), false, 2.0 * zoom_level)
+					var center = board_pos + (Vector2(hovered_cell) + Vector2(0.5, 0.5)) * c_sz
+					var cross_sz = 6.0 * zoom_level
+					draw_line(center - Vector2(cross_sz, cross_sz), center + Vector2(cross_sz, cross_sz), Color(1.0, 0.3, 0.3), 2.0 * zoom_level)
+					draw_line(center - Vector2(cross_sz, -cross_sz), center + Vector2(cross_sz, -cross_sz), Color(1.0, 0.3, 0.3), 2.0 * zoom_level)
 
 		if is_side_by_side and idx < visible_stages.size() - 1:
 			var next_st = visible_stages[idx + 1]

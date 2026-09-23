@@ -231,6 +231,7 @@ func _setup_ui() -> void:
 	grid_canvas.cell_visual_selected.connect(_on_cell_visual_selected)
 	grid_canvas.border_visual_selected.connect(_on_border_visual_selected)
 	grid_canvas.corner_visual_selected.connect(_on_corner_visual_selected)
+	grid_canvas.hint_path_modified.connect(_on_hint_path_modified)
 	grid_canvas.undo_manager = undo_manager
 	center_vsplit.add_child(grid_canvas)
 
@@ -257,6 +258,9 @@ func _setup_ui() -> void:
 	inspector_panel.corner_visual_paint_selected.connect(_on_corner_visual_paint_selected)
 	inspector_panel.corner_erase_selected.connect(_on_corner_erase_selected)
 	inspector_panel.corner_visual_modified.connect(_on_corner_visual_modified)
+	inspector_panel.hint_settings_changed.connect(_on_hint_settings_changed)
+	inspector_panel.hint_tool_mode_requested.connect(_on_hint_tool_mode_requested)
+	inspector_panel.hint_mode_toggled.connect(_on_hint_mode_toggled)
 	inspector_panel.level_settings_changed.connect(_on_level_settings_changed)
 	inspector_panel.request_delete_selected.connect(_delete_selected_objects)
 	inspector_panel.request_duplicate_selected.connect(_duplicate_selected_objects)
@@ -444,7 +448,9 @@ func _on_stage_removed(new_active_idx: int) -> void:
 	_on_stage_content_changed()
 
 func _on_palette_tool_changed(mode: GridCanvas.ToolMode) -> void:
-	grid_canvas.current_tool = mode
+	if grid_canvas != null:
+		grid_canvas.set_hint_mode(false)
+		grid_canvas.current_tool = mode
 
 func _on_palette_item_selected(type: LaserObjectData.ObjectType, rot: int, col: Color) -> void:
 	grid_canvas.active_palette_type = type
@@ -584,6 +590,26 @@ func _on_corner_erase_selected() -> void:
 func _on_corner_visual_modified(_stage: LaserStageData, _corner: String, _asset: String, _rot_deg: float, _mx: bool, _my: bool, _offset: float = 0.0, _scale_x: float = 1.0, _scale_y: float = 1.0) -> void:
 	if grid_canvas != null:
 		grid_canvas.queue_redraw()
+	_on_stage_content_changed()
+
+func _on_hint_settings_changed(_stage: LaserStageData) -> void:
+	if grid_canvas != null:
+		grid_canvas.queue_redraw()
+	_on_stage_content_changed()
+
+func _on_hint_tool_mode_requested(mode: int) -> void:
+	if grid_canvas != null:
+		grid_canvas.set_hint_mode(true)
+		grid_canvas.current_tool = mode as GridCanvas.ToolMode
+		grid_canvas.queue_redraw()
+
+func _on_hint_mode_toggled(active: bool) -> void:
+	if grid_canvas != null:
+		grid_canvas.set_hint_mode(active)
+
+func _on_hint_path_modified(_stage: LaserStageData) -> void:
+	if inspector_panel != null:
+		inspector_panel.update_hint_display()
 	_on_stage_content_changed()
 
 func _on_level_settings_changed(lvl: LaserLevelData) -> void:

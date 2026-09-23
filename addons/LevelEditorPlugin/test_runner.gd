@@ -1250,6 +1250,378 @@ func _init() -> void:
 	print("✓ Proportional scaling, independent Scale X/Y, offsets, and relative geometry between Editor and Gameplay verified.")
 	print("✓ Section 24 Editor to Gameplay Visual Fidelity Pipeline passed all tests successfully!")
 
+	# =========================================================================
+	# SECTION 25: Visual-Only Laser Hint System Validation
+	# =========================================================================
+	print("\n--- SECTION 25: Visual-Only Laser Hint System Validation ---")
+
+	# 1. Test LaserStageData defaults & properties
+	var hint_stage := LaserStageData.new()
+	hint_stage.grid_width = 8
+	hint_stage.grid_height = 10
+	assert(hint_stage.hint_enabled == false, "Default hint_enabled should be false")
+	assert(hint_stage.hint_laser_color == Color(0.31, 0.76, 1.0, 1.0), "Default hint_laser_color should be cyan")
+	assert(is_equal_approx(hint_stage.hint_laser_width, 4.0), "Default hint_laser_width should be 4.0")
+	assert(is_equal_approx(hint_stage.hint_laser_opacity, 1.0), "Default hint_laser_opacity should be 1.0")
+	assert(hint_stage.hint_path_points.is_empty(), "Default hint_path_points should be empty")
+	print("✓ LaserStageData default hint properties verified.")
+
+	# 2. Test user's requested 8x10 test path:
+	# [(0,0), (1,0), (2,0), (2,1), (2,2), (3,2), (4,2), (4,3), (4,4)]
+	var test_path_coords: Array[Vector2i] = [
+		Vector2i(0, 0),
+		Vector2i(1, 0),
+		Vector2i(2, 0),
+		Vector2i(2, 1),
+		Vector2i(2, 2),
+		Vector2i(3, 2),
+		Vector2i(4, 2),
+		Vector2i(4, 3),
+		Vector2i(4, 4)
+	]
+
+	for pt in test_path_coords:
+		hint_stage.add_hint_point(pt)
+
+	assert(hint_stage.hint_path_points.size() == 9, "Hint path must contain 9 points")
+	assert(hint_stage.hint_path_points[0] == Vector2i(0, 0), "Start point must be (0, 0)")
+	assert(hint_stage.hint_path_points[8] == Vector2i(4, 4), "End point must be (4, 4)")
+	assert(hint_stage.get_hint_points_count() == 9, "get_hint_points_count() must return 9")
+
+	# Test bounds checking
+	hint_stage.add_hint_point(Vector2i(-1, 0))
+	hint_stage.add_hint_point(Vector2i(8, 10))
+	assert(hint_stage.hint_path_points.size() == 9, "Out of bounds points must not be added")
+
+	# Test consecutive duplicate point filtering
+	hint_stage.add_hint_point(Vector2i(4, 4))
+	assert(hint_stage.hint_path_points.size() == 9, "Consecutive duplicate point must not be added")
+
+	# Test removing point
+	var removed := hint_stage.remove_hint_point(Vector2i(4, 4))
+	assert(removed == true, "remove_hint_point should return true")
+	assert(hint_stage.hint_path_points.size() == 8, "Point count should be 8 after removal")
+	hint_stage.add_hint_point(Vector2i(4, 4))
+	assert(hint_stage.hint_path_points.size() == 9, "Point re-added successfully")
+
+	# 3. Test Serialization & Deserialization
+	hint_stage.hint_enabled = true
+	hint_stage.hint_laser_color = Color("#4FC3FF")
+	hint_stage.hint_laser_width = 3.5
+	hint_stage.hint_laser_opacity = 0.85
+
+	var stage_dict := hint_stage.to_dict()
+	assert(stage_dict.has("hint"), "Serialized dictionary must contain 'hint' block")
+	var hint_dict: Dictionary = stage_dict["hint"]
+	assert(hint_dict.get("enabled") == true, "Serialized hint.enabled mismatch")
+	assert(hint_dict.get("laser_color") == "#4fc3ff", "Serialized hint.laser_color mismatch")
+	assert(is_equal_approx(float(hint_dict.get("laser_width")), 3.5), "Serialized hint.laser_width mismatch")
+	assert(is_equal_approx(float(hint_dict.get("laser_opacity")), 0.85), "Serialized hint.laser_opacity mismatch")
+	assert(hint_dict.has("path") and hint_dict["path"].size() == 9, "Serialized hint.path must have 9 points")
+
+	var restored_stage := LaserStageData.from_dict(stage_dict)
+	assert(restored_stage.hint_enabled == true, "Restored hint_enabled mismatch")
+	assert(is_equal_approx(restored_stage.hint_laser_color.r, Color("#4FC3FF").r), "Restored color red channel mismatch")
+	assert(is_equal_approx(restored_stage.hint_laser_width, 3.5), "Restored hint_laser_width mismatch")
+	assert(is_equal_approx(restored_stage.hint_laser_opacity, 0.85), "Restored hint_laser_opacity mismatch")
+	assert(restored_stage.hint_path_points.size() == 9, "Restored path points count mismatch")
+	for i in range(9):
+		assert(restored_stage.hint_path_points[i] == test_path_coords[i], "Restored point %d mismatch" % i)
+
+	# 4. Test duplicate_data()
+	var dup_stage := hint_stage.duplicate_data()
+	assert(dup_stage.hint_enabled == hint_stage.hint_enabled, "dup hint_enabled mismatch")
+	assert(dup_stage.hint_path_points.size() == hint_stage.hint_path_points.size(), "dup hint_path_points size mismatch")
+	dup_stage.clear_hint_path()
+	assert(dup_stage.hint_path_points.is_empty(), "Cleared dup stage should be empty")
+	assert(hint_stage.hint_path_points.size() == 9, "Original stage must remain unaffected by dup mutation")
+	print("✓ Stage hint data serialization, deserialization, and cloning verified.")
+
+	# 5. Visual-Only Guarantee: Zero Effect on Laser Simulation, Solvability, and Validation
+	var s25_lvl := _make_test_level(250)
+	var s25_st := s25_lvl.get_stage(1)
+
+	var s25_sim_before := LaserSimulation.simulate_stage(s25_st)
+	var s25_solv_before := SolvabilityChecker.check_stage_solvability(s25_st, 500)
+	var s25_val_before := LevelValidator.validate_level(s25_lvl)
+
+	# Now add heavy hint configuration
+	s25_st.hint_enabled = true
+	s25_st.hint_laser_color = Color.MAGENTA
+	s25_st.hint_laser_width = 8.0
+	s25_st.hint_laser_opacity = 0.5
+	s25_st.set_hint_path([Vector2i(0, 0), Vector2i(1, 1), Vector2i(2, 2), Vector2i(3, 3), Vector2i(4, 4)])
+
+	var s25_sim_after := LaserSimulation.simulate_stage(s25_st)
+	var s25_solv_after := SolvabilityChecker.check_stage_solvability(s25_st, 500)
+	var s25_val_after := LevelValidator.validate_level(s25_lvl)
+
+	assert(s25_sim_before["segments"].size() == s25_sim_after["segments"].size(), "Simulation segment count must be 100% identical")
+	for idx in range(s25_sim_before["segments"].size()):
+		assert(s25_sim_before["segments"][idx]["start"] == s25_sim_after["segments"][idx]["start"], "Segment start must match")
+		assert(s25_sim_before["segments"][idx]["end"] == s25_sim_after["segments"][idx]["end"], "Segment end must match")
+	assert(s25_solv_before["status"] == s25_solv_after["status"], "Solvability status must be 100% identical")
+	assert(s25_val_before["is_valid"] == s25_val_after["is_valid"], "Validation is_valid must be 100% identical")
+	assert(s25_val_before["error_count"] == s25_val_after["error_count"], "Validation error_count must be 100% identical")
+	assert(s25_val_before["items"].size() == s25_val_after["items"].size(), "Validation items count must be 100% identical")
+	print("✓ Strict Visual-Only guarantee verified: Hint Path has 0 effect on Laser Physics, Solvability, and Validation.")
+
+	# 6. Test InspectorPanel UI & Tab 4 Integration
+	var s25_insp := InspectorPanel.new()
+	assert(s25_insp.tab_hint_btn != null, "InspectorPanel must have tab_hint_btn")
+	assert(s25_insp.hint_section != null, "InspectorPanel must have hint_section")
+	s25_insp.set_stage(hint_stage)
+	s25_insp._switch_tab(4)
+	assert(s25_insp.tab_hint_btn.button_pressed == true, "Hint tab must be toggled active")
+	assert(s25_insp.hint_section.visible == true, "Hint section must be visible")
+	assert(s25_insp.obj_section.visible == false, "Object section must be hidden")
+	assert(s25_insp.stage_section.visible == false, "Stage section must be hidden")
+	assert(s25_insp.tile_section.visible == false, "Tile section must be hidden")
+	assert(s25_insp.lvl_section.visible == false, "Level section must be hidden")
+	assert(s25_insp.hint_points_lbl.text == "Points: 9", "Hint points label mismatch")
+	assert(s25_insp.hint_start_lbl.text == "Path Start: (0, 0)", "Hint start label mismatch")
+	assert(s25_insp.hint_end_lbl.text == "Path End: (4, 4)", "Hint end label mismatch")
+	print("✓ InspectorPanel Hint Tab UI, Controls, Labels, and exclusive visibility verified.")
+
+	# 7. Test GridCanvas Tool Modes & Interaction
+	var s25_canvas := GridCanvas.new()
+	assert(GridCanvas.ToolMode.HINT_DRAW == 11, "ToolMode.HINT_DRAW enum value check")
+	assert(GridCanvas.ToolMode.HINT_ERASE == 12, "ToolMode.HINT_ERASE enum value check")
+	s25_canvas.current_tool = GridCanvas.ToolMode.HINT_DRAW
+	assert(s25_canvas.current_tool == GridCanvas.ToolMode.HINT_DRAW, "GridCanvas current_tool HINT_DRAW check")
+	s25_canvas.current_tool = GridCanvas.ToolMode.HINT_ERASE
+	assert(s25_canvas.current_tool == GridCanvas.ToolMode.HINT_ERASE, "GridCanvas current_tool HINT_ERASE check")
+	print("✓ GridCanvas Hint Tool Modes and canvas interaction verified.")
+
+	print("✓ Section 25 Visual-Only Laser Hint System passed all tests successfully!")
+
+	# =========================================================================
+	# SECTION 26: Gameplay Scene Hint UI & Path Rendering Validation
+	# =========================================================================
+	print("\n--- SECTION 26: Gameplay Scene Hint UI & Path Rendering Validation ---")
+
+	var s26_hint_dialog_script = load("res://Game/Scripts/hint_dialog.gd")
+	var s26_layout_helper = load("res://addons/LevelEditorPlugin/core/board_layout_helper.gd")
+
+	# 1. Test HintDialog Component
+	var s26_dialog = s26_hint_dialog_script.new()
+	assert(s26_dialog.layer == 25, "HintDialog must be high-priority overlay layer 25")
+	assert(s26_dialog.dim_bg != null, "HintDialog must have dim background overlay")
+	assert(s26_dialog.card != null, "HintDialog must have centered card panel")
+	assert(s26_dialog.close_btn != null, "HintDialog must have close button")
+	assert(s26_dialog.visible == false, "HintDialog should initially be hidden")
+	print("✓ HintDialog component hierarchy and defaults verified.")
+
+	# 2. Test 8x10 Stage Hint Dialog Layout & Aspect Ratio
+	var s26_st_8x10 := LaserStageData.new()
+	s26_st_8x10.stage_index = 1
+	s26_st_8x10.grid_width = 8
+	s26_st_8x10.grid_height = 10
+	s26_st_8x10.hint_enabled = true
+	s26_st_8x10.hint_laser_color = Color("#4FC3FF")
+	s26_st_8x10.hint_laser_width = 4.0
+	s26_st_8x10.hint_laser_opacity = 1.0
+	s26_st_8x10.set_hint_path([
+		Vector2i(0, 0), Vector2i(1, 0), Vector2i(2, 0),
+		Vector2i(2, 1), Vector2i(2, 2), Vector2i(3, 2),
+		Vector2i(4, 2), Vector2i(4, 3), Vector2i(4, 4)
+	])
+
+	s26_dialog.open_hint(s26_st_8x10)
+	assert(s26_dialog.is_open() == true, "HintDialog must report is_open() == true after open_hint")
+	assert(s26_dialog.visible == true, "HintDialog visible must be true")
+	assert(s26_dialog.cell_card_size.x > 0 and s26_dialog.cell_card_size.y > 0, "Cell card size must be calculated")
+	assert(is_equal_approx(s26_dialog.cell_card_size.x, s26_dialog.cell_card_size.y), "Grid cells must maintain 1:1 aspect ratio")
+	var s26_grid_aspect: float = (float(s26_st_8x10.grid_width) * s26_dialog.cell_card_size.x) / (float(s26_st_8x10.grid_height) * s26_dialog.cell_card_size.y)
+	assert(is_equal_approx(s26_grid_aspect, 8.0 / 10.0), "8x10 Stage grid aspect ratio must be 0.8")
+
+	# Test logical grid to card coordinate conversion
+	var s26_p0: Vector2 = s26_dialog._grid_to_card(Vector2i(0, 0))
+	var s26_p4: Vector2 = s26_dialog._grid_to_card(Vector2i(4, 4))
+	assert(s26_p0.x > 0 and s26_p0.y > 0, "p0 must be positive card coordinate")
+	assert(s26_p4.x > s26_p0.x and s26_p4.y > s26_p0.y, "p4 must be right and below p0")
+	print("✓ 8x10 Stage Hint Dialog layout, 1:1 cell proportion, and logical coordinate mapping verified.")
+
+	# 3. Test 5x5 Stage and 6x12 Stage Dynamic Responsiveness
+	var s26_st_5x5 := LaserStageData.new()
+	s26_st_5x5.grid_width = 5
+	s26_st_5x5.grid_height = 5
+	s26_st_5x5.hint_enabled = true
+	s26_st_5x5.set_hint_path([Vector2i(0, 0), Vector2i(2, 2), Vector2i(4, 4)])
+	s26_dialog.open_hint(s26_st_5x5)
+	var s26_grid_aspect_5x5: float = (float(s26_st_5x5.grid_width) * s26_dialog.cell_card_size.x) / (float(s26_st_5x5.grid_height) * s26_dialog.cell_card_size.y)
+	assert(is_equal_approx(s26_grid_aspect_5x5, 1.0), "5x5 Stage grid aspect ratio must be 1.0 (square)")
+
+	var s26_st_6x12 := LaserStageData.new()
+	s26_st_6x12.grid_width = 6
+	s26_st_6x12.grid_height = 12
+	s26_st_6x12.hint_enabled = true
+	s26_st_6x12.set_hint_path([Vector2i(0, 0), Vector2i(0, 11)])
+	s26_dialog.open_hint(s26_st_6x12)
+	var s26_grid_aspect_6x12: float = (float(s26_st_6x12.grid_width) * s26_dialog.cell_card_size.x) / (float(s26_st_6x12.grid_height) * s26_dialog.cell_card_size.y)
+	assert(is_equal_approx(s26_grid_aspect_6x12, 6.0 / 12.0), "6x12 Stage grid aspect ratio must be 0.5")
+	print("✓ Dynamic responsive aspect-ratio preservation across different grid dimensions (5x5, 6x12) verified.")
+
+	# 4. Test Missing / Disabled Hint Graceful Handling
+	var s26_st_empty := LaserStageData.new()
+	s26_st_empty.hint_enabled = false
+	s26_dialog.open_hint(s26_st_empty)
+	assert(s26_dialog.is_open() == true, "Empty hint stage should not crash HintDialog")
+	print("✓ Missing / disabled hint data graceful handling verified.")
+
+	# 5. Test GamePlay Scene Integration & Hint Button
+	var s26_gp_scene := load("res://Game/GamePlay.tscn")
+	assert(s26_gp_scene != null, "GamePlay.tscn must be loadable")
+	var s26_gp = s26_gp_scene.instantiate()
+	assert(s26_gp != null, "GamePlay instance creation")
+	# Add to tree so _ready runs
+	var s26_root := root
+	s26_root.add_child(s26_gp)
+
+	assert(s26_gp.hint_button != null, "GamePlay must contain hint_button")
+	assert(s26_gp.hint_dialog != null, "GamePlay must contain hint_dialog")
+
+	# Load test stage into gameplay
+	s26_gp.current_stage = s26_st_8x10
+	s26_gp._auto_center_grid(s26_st_8x10)
+	s26_gp._update_hint_button()
+
+	assert(s26_gp.hint_button.disabled == false, "Hint button must be enabled when stage has hint")
+	var s26_btn_pos: Vector2 = s26_gp.hint_button.position
+	var s26_board_rect: Rect2 = s26_layout_helper.compute_board_rect(s26_gp.grid_origin, s26_gp.cell_size, s26_st_8x10.grid_width, s26_st_8x10.grid_height)
+	assert(s26_btn_pos.y >= s26_board_rect.position.y + s26_board_rect.size.y, "Hint button must be positioned below board")
+
+	# Test button disabled when stage has no hint
+	s26_gp.current_stage = s26_st_empty
+	s26_gp._update_hint_button()
+	assert(s26_gp.hint_button.disabled == true, "Hint button must be disabled when stage has no hint")
+
+	# Test open hint from GamePlay
+	s26_gp.current_stage = s26_st_8x10
+	s26_gp._on_hint_button_pressed()
+	assert(s26_gp.hint_dialog.is_open() == true, "Hint dialog must be open after button press")
+
+	# Test input blocking while hint dialog is open
+	var s26_test_obj := LaserObjectData.create(LaserObjectData.ObjectType.ROTATABLE_MIRROR, Vector2i(2, 2), 0)
+	s26_st_8x10.objects = [s26_test_obj]
+	var s26_initial_rot: int = s26_test_obj.rotation_deg
+	var s26_fake_click := InputEventMouseButton.new()
+	s26_fake_click.button_index = MOUSE_BUTTON_LEFT
+	s26_fake_click.pressed = true
+	s26_fake_click.position = s26_gp.grid_to_world(Vector2i(2, 2))
+	s26_gp._unhandled_input(s26_fake_click)
+	assert(s26_test_obj.rotation_deg == s26_initial_rot, "Input must be blocked while hint dialog is open")
+
+	# Test close hint
+	s26_gp.hint_dialog.close_hint()
+	s26_gp.queue_free()
+	print("✓ GamePlay Hint Button relative positioning, dynamic enable/disable, and input blocking verified.")
+
+	print("✓ Section 26 Gameplay Scene Hint UI & Path Rendering Validation passed all tests successfully!")
+
+	# =========================================================================
+	# SECTION 27: LEVEL EDITOR HINT MODE DARK TINT OVERLAY VALIDATION
+	# =========================================================================
+	print("--- SECTION 27: Level Editor Hint Mode Dark Tint Overlay Validation ---")
+
+	var s27_editor := LaserMindEditorMain.new()
+	var s27_lvl := _make_test_level(270)
+	s27_editor.set_level(s27_lvl)
+
+	var s27_canvas: GridCanvas = s27_editor.grid_canvas
+	var s27_inspector: InspectorPanel = s27_editor.inspector_panel
+
+	# 1. Verify HINT_MODE_DIM_COLOR constant specifications
+	assert(GridCanvas.HINT_MODE_DIM_COLOR != null, "GridCanvas must have HINT_MODE_DIM_COLOR constant")
+	assert(GridCanvas.HINT_MODE_DIM_COLOR.r == 0.0 and GridCanvas.HINT_MODE_DIM_COLOR.g == 0.0 and GridCanvas.HINT_MODE_DIM_COLOR.b == 0.0, "Dark tint color must be black")
+	assert(GridCanvas.HINT_MODE_DIM_COLOR.a >= 0.45 and GridCanvas.HINT_MODE_DIM_COLOR.a <= 0.60, "Dark tint alpha must be in range 0.45 - 0.60, got: %f" % GridCanvas.HINT_MODE_DIM_COLOR.a)
+	print("✓ HINT_MODE_DIM_COLOR constant verified: black with alpha %f." % GridCanvas.HINT_MODE_DIM_COLOR.a)
+
+	# 2. Verify initial load state: zero dark tint and hint mode is false by default
+	var s27_init_editor := LaserMindEditorMain.new()
+	assert(s27_init_editor.grid_canvas.is_hint_mode() == false, "Initial editor load must have hint mode disabled")
+	s27_init_editor.queue_free()
+
+	# 3. Test exact tab switching flow:
+	# Click Object -> no dark tint
+	s27_inspector._switch_tab(0)
+	assert(s27_canvas.is_hint_mode() == false, "Object tab must have hint mode = false")
+
+	# Click Stage -> no dark tint
+	s27_inspector._switch_tab(1)
+	assert(s27_canvas.is_hint_mode() == false, "Stage tab must have hint mode = false")
+
+	# Click Level -> no dark tint
+	s27_inspector._switch_tab(2)
+	assert(s27_canvas.is_hint_mode() == false, "Level tab must have hint mode = false")
+
+	# Click Tiles -> no dark tint
+	s27_inspector._switch_tab(3)
+	assert(s27_canvas.is_hint_mode() == false, "Tiles tab must have hint mode = false")
+
+	# Click Hint -> dark tint & hint path VISIBLE
+	s27_inspector._switch_tab(4)
+	assert(s27_canvas.is_hint_mode() == true, "Hint tab must have hint mode = true")
+
+	# Click Tiles -> dark tint & hint path HIDDEN
+	s27_inspector._switch_tab(3)
+	assert(s27_canvas.is_hint_mode() == false, "Tiles tab must have hint mode = false")
+
+	# Click Hint again -> dark tint & hint path VISIBLE
+	s27_inspector._switch_tab(4)
+	assert(s27_canvas.is_hint_mode() == true, "Hint tab must have hint mode = true")
+
+	# Switch to another panel (Stage) -> dark tint & hint path HIDDEN
+	s27_inspector._switch_tab(1)
+	assert(s27_canvas.is_hint_mode() == false, "Stage tab must have hint mode = false")
+
+	# Back to Hint tab for tool tests
+	s27_inspector._switch_tab(4)
+	assert(s27_canvas.is_hint_mode() == true, "Hint tab must have hint mode = true")
+
+	# 5. Verify palette tool change turns off hint mode
+	s27_editor._on_palette_tool_changed(GridCanvas.ToolMode.PAINT)
+	assert(s27_canvas.is_hint_mode() == false, "Selecting palette paint tool must deactivate hint mode")
+
+	# 6. Verify requesting hint draw tool activates hint mode
+	s27_editor._on_hint_tool_mode_requested(GridCanvas.ToolMode.HINT_DRAW)
+	assert(s27_canvas.is_hint_mode() == true, "Requesting hint draw tool must activate hint mode")
+	assert(s27_canvas.current_tool == GridCanvas.ToolMode.HINT_DRAW, "Current tool must be HINT_DRAW")
+
+	# 7. Verify hint point drawing and editing interactions work while hint mode is active
+	var s27_st = s27_lvl.get_stage(1)
+	s27_st.clear_hint_path()
+	assert(s27_st.hint_path_points.is_empty(), "Hint path must be empty initially")
+
+	# Simulate user clicking cell (1, 1) and (1, 3) in HINT_DRAW mode
+	var fake_draw_ev := InputEventMouseButton.new()
+	fake_draw_ev.button_index = MOUSE_BUTTON_LEFT
+	fake_draw_ev.pressed = true
+	var cell_1_1_screen = s27_canvas.stage_cell_to_screen(1, Vector2i(1, 1))
+	fake_draw_ev.position = cell_1_1_screen
+	s27_canvas._gui_input(fake_draw_ev)
+
+	assert(s27_st.hint_path_points.size() == 1, "Drawing at cell (1,1) should add 1 point")
+	assert(s27_st.hint_path_points[0] == Vector2i(1, 1), "Point must be (1,1)")
+
+	var cell_1_3_screen = s27_canvas.stage_cell_to_screen(1, Vector2i(1, 3))
+	fake_draw_ev.position = cell_1_3_screen
+	s27_canvas._gui_input(fake_draw_ev)
+
+	assert(s27_st.hint_path_points.size() == 2, "Drawing at cell (1,3) should add 2nd point")
+	assert(s27_st.hint_path_points[1] == Vector2i(1, 3), "Point 2 must be (1,3)")
+
+	# Verify Hint erase interaction
+	s27_editor._on_hint_tool_mode_requested(GridCanvas.ToolMode.HINT_ERASE)
+	assert(s27_canvas.is_hint_mode() == true, "Hint erase tool must also keep hint mode active")
+	fake_draw_ev.position = cell_1_3_screen
+	s27_canvas._gui_input(fake_draw_ev)
+	assert(s27_st.hint_path_points.size() == 1, "Erasing at (1,3) should remove the point")
+	assert(s27_st.hint_path_points[0] == Vector2i(1, 1), "Remaining point must be (1,1)")
+
+	s27_editor.queue_free()
+	print("✓ Section 27 Level Editor Hint Mode Dark Tint Overlay Validation passed all tests successfully!")
+
 	print("--- ALL EDITOR BUTTONS, TOOLS, MODALS, AND PANELS ARE 100% OPERATIONAL! ---")
 	quit(0)
 
