@@ -13,6 +13,9 @@ const DEFAULT_CELL_DEMO_PATH: String = "res://addons/LevelEditorPlugin/assets/de
 const DEFAULT_BORDER_DEMO_PATH: String = "res://addons/LevelEditorPlugin/assets/default/borders/demo_border_01.svg"
 const DEFAULT_CORNER_DEMO_PATH: String = "res://addons/LevelEditorPlugin/assets/default/corners/demo_corner_01.svg"
 
+# Reference Editor Cell Size (all saved scale/offset values are defined relative to this base size)
+const BASE_CELL_SIZE: float = 48.0
+
 # Optional fallback paths for backwards compatibility
 const DEFAULT_CELL_A_PATH: String = "res://addons/LevelEditorPlugin/assets/default/cells/demo_cell_01.svg"
 const DEFAULT_BORDER_H_PATH: String = "res://addons/LevelEditorPlugin/assets/default/borders/demo_border_01.svg"
@@ -43,25 +46,22 @@ static func resolve_asset_in_library(stage: LaserStageData, lib_name: String, as
 				if i_id == trimmed or i_name == trimmed or i_path == trimmed or i_path.get_file() == trimmed:
 					return i_path
 
-		# 2. Authoritative Fallback for Cell Images:
-		# If the stage has configured cell_assets, any legacy/empty/unmatched reference
-		# MUST map to the primary configured cell asset! This ensures that selecting Logo.png
-		# immediately and authoritatively renders Logo.png across all cells using that visual.
-		if lib_name == "cell" and not lib.is_empty():
-			return str(lib[0].get("path", ""))
+		# 2. Authoritative Fallback for Library Assets:
+		# If the stage has configured assets in the library, fallback to the primary configured asset
+		if not lib.is_empty():
+			if lib_name == "cell":
+				return str(lib[0].get("path", ""))
+			if lib_name == "border" and (trimmed == "border_1" or trimmed.is_empty() or not trimmed.begins_with("res://")):
+				return str(lib[0].get("path", ""))
+			if lib_name == "corner" and (trimmed == "corner_1" or trimmed.is_empty() or not trimmed.begins_with("res://")):
+				return str(lib[0].get("path", ""))
 
-		# 3. For border or corner, if trimmed matches border_1 / corner_1 default, return first
-		if lib_name == "border" and not lib.is_empty() and (trimmed == "border_1" or trimmed.is_empty()):
-			return str(lib[0].get("path", ""))
-		if lib_name == "corner" and not lib.is_empty() and (trimmed == "corner_1" or trimmed.is_empty()):
-			return str(lib[0].get("path", ""))
-
-	# 4. Check direct file path on disk or in project
+	# 3. Check direct file path on disk or in project
 	if not trimmed.is_empty():
 		if trimmed.begins_with("res://") or FileAccess.file_exists(trimmed):
 			return trimmed
 
-	# 5. Minimal demo fallback
+	# 4. Minimal demo fallback
 	match lib_name:
 		"cell":
 			return _get_configured_or_default("cell_demo", DEFAULT_CELL_DEMO_PATH)
@@ -241,20 +241,22 @@ static func get_perimeter_border_center(origin: Vector2, cell_size: Vector2, gri
 	var grid_top := origin.y
 	var grid_right := origin.x + float(grid_width) * cell_size.x
 	var grid_bottom := origin.y + float(grid_height) * cell_size.y
+	var scale_factor_x: float = cell_size.x / BASE_CELL_SIZE
+	var scale_factor_y: float = cell_size.y / BASE_CELL_SIZE
 
 	match side.to_lower():
 		"top":
 			var base := Vector2(grid_left + (float(index) + 0.5) * cell_size.x, grid_top - 0.5 * cell_size.y)
-			return base + Vector2(0, -1) * offset
+			return base + Vector2(0, -1) * (offset * scale_factor_y)
 		"bottom":
 			var base := Vector2(grid_left + (float(index) + 0.5) * cell_size.x, grid_bottom + 0.5 * cell_size.y)
-			return base + Vector2(0, 1) * offset
+			return base + Vector2(0, 1) * (offset * scale_factor_y)
 		"left":
 			var base := Vector2(grid_left - 0.5 * cell_size.x, grid_top + (float(index) + 0.5) * cell_size.y)
-			return base + Vector2(-1, 0) * offset
+			return base + Vector2(-1, 0) * (offset * scale_factor_x)
 		"right":
 			var base := Vector2(grid_right + 0.5 * cell_size.x, grid_top + (float(index) + 0.5) * cell_size.y)
-			return base + Vector2(1, 0) * offset
+			return base + Vector2(1, 0) * (offset * scale_factor_x)
 		_:
 			return origin
 
@@ -286,20 +288,22 @@ static func get_outer_corner_center(origin: Vector2, cell_size: Vector2, grid_wi
 	var grid_top := origin.y
 	var grid_right := origin.x + float(grid_width) * cell_size.x
 	var grid_bottom := origin.y + float(grid_height) * cell_size.y
+	var scale_factor_x: float = cell_size.x / BASE_CELL_SIZE
+	var scale_factor_y: float = cell_size.y / BASE_CELL_SIZE
 
 	match corner.to_lower():
 		"top_left":
 			var base := Vector2(grid_left - 0.5 * cell_size.x, grid_top - 0.5 * cell_size.y)
-			return base + Vector2(-1, -1) * offset
+			return base + Vector2(-offset * scale_factor_x, -offset * scale_factor_y)
 		"top_right":
 			var base := Vector2(grid_right + 0.5 * cell_size.x, grid_top - 0.5 * cell_size.y)
-			return base + Vector2(1, -1) * offset
+			return base + Vector2(offset * scale_factor_x, -offset * scale_factor_y)
 		"bottom_left":
 			var base := Vector2(grid_left - 0.5 * cell_size.x, grid_bottom + 0.5 * cell_size.y)
-			return base + Vector2(-1, 1) * offset
+			return base + Vector2(-offset * scale_factor_x, offset * scale_factor_y)
 		"bottom_right":
 			var base := Vector2(grid_right + 0.5 * cell_size.x, grid_bottom + 0.5 * cell_size.y)
-			return base + Vector2(1, 1) * offset
+			return base + Vector2(offset * scale_factor_x, offset * scale_factor_y)
 		_:
 			return origin
 
@@ -329,16 +333,18 @@ static func get_border_piece_transform(
 	var gw := stage.grid_width if stage != null else 1
 	var gh := stage.grid_height if stage != null else 1
 
-	var center := get_perimeter_border_center(origin, cell_size, gw, gh, side, index, offset * zoom)
-	var slot_rect := get_perimeter_border_rect(origin, cell_size, gw, gh, side, index, offset * zoom)
+	var center := get_perimeter_border_center(origin, cell_size, gw, gh, side, index, offset)
+	var slot_rect := get_perimeter_border_rect(origin, cell_size, gw, gh, side, index, offset)
 
 	var tex: Texture2D = null
 	if not asset_id.is_empty() and stage != null:
 		tex = get_border_asset_texture(stage, asset_id)
 
 	var tex_sz := tex.get_size() if tex != null else Vector2.ZERO
-	var sx := scale_x_val * zoom
-	var sy := scale_y_val * zoom
+	var scale_factor_x: float = (cell_size.x / BASE_CELL_SIZE)
+	var scale_factor_y: float = (cell_size.y / BASE_CELL_SIZE)
+	var sx := scale_x_val * scale_factor_x
+	var sy := scale_y_val * scale_factor_y
 	var v_rect := get_transformed_visual_rect(center, tex_sz, rot_deg, sx, sy, cell_size)
 
 	return {
@@ -386,16 +392,18 @@ static func get_corner_piece_transform(
 	var gw := stage.grid_width if stage != null else 1
 	var gh := stage.grid_height if stage != null else 1
 
-	var center := get_outer_corner_center(origin, cell_size, gw, gh, corner, offset * zoom)
-	var slot_rect := get_outer_corner_rect(origin, cell_size, gw, gh, corner, offset * zoom)
+	var center := get_outer_corner_center(origin, cell_size, gw, gh, corner, offset)
+	var slot_rect := get_outer_corner_rect(origin, cell_size, gw, gh, corner, offset)
 
 	var tex: Texture2D = null
 	if not asset_id.is_empty() and stage != null:
 		tex = get_corner_asset_texture(stage, asset_id)
 
 	var tex_sz := tex.get_size() if tex != null else Vector2.ZERO
-	var sx := scale_x_val * zoom
-	var sy := scale_y_val * zoom
+	var scale_factor_x: float = (cell_size.x / BASE_CELL_SIZE)
+	var scale_factor_y: float = (cell_size.y / BASE_CELL_SIZE)
+	var sx := scale_x_val * scale_factor_x
+	var sy := scale_y_val * scale_factor_y
 	var v_rect := get_transformed_visual_rect(center, tex_sz, rot_deg, sx, sy, cell_size)
 
 	return {
@@ -480,8 +488,8 @@ static func draw_borders(
 				tex = get_border_asset_texture(stage, str(p.get("asset", "")))
 
 		if tex != null:
-			var piece_scale_x: float = float(p.get("draw_scale_x", float(p.get("scale_x", 1.0)) * zoom))
-			var piece_scale_y: float = float(p.get("draw_scale_y", float(p.get("scale_y", 1.0)) * zoom))
+			var piece_scale_x: float = float(p.get("draw_scale_x", float(p.get("scale_x", 1.0))))
+			var piece_scale_y: float = float(p.get("draw_scale_y", float(p.get("scale_y", 1.0))))
 			var center: Vector2 = p.get("center", Vector2.ZERO)
 			draw_border_or_corner_visual(
 				canvas,

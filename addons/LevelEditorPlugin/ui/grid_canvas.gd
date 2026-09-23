@@ -283,7 +283,7 @@ func screen_to_stage_and_perimeter_border(screen_pos: Vector2) -> Dictionary:
 						"scale_x": active_border_scale_x,
 						"scale_y": active_border_scale_y
 					})
-					var base_rect := BoardVisualGenerator.get_perimeter_border_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, side, i, off_val * zoom_level)
+					var base_rect := BoardVisualGenerator.get_perimeter_border_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, side, i, off_val)
 					if base_rect.has_point(screen_pos) or t_info.visual_rect.has_point(screen_pos):
 						return {
 							"inside": true,
@@ -337,7 +337,7 @@ func screen_to_stage_and_outer_corner(screen_pos: Vector2) -> Dictionary:
 					"scale_x": active_corner_scale_x,
 					"scale_y": active_corner_scale_y
 				})
-				var base_rect := BoardVisualGenerator.get_outer_corner_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, c_name, off_val * zoom_level)
+				var base_rect := BoardVisualGenerator.get_outer_corner_rect(board_pos, Vector2(c_sz, c_sz), st.grid_width, st.grid_height, c_name, off_val)
 				if base_rect.has_point(screen_pos) or t_info.visual_rect.has_point(screen_pos):
 					return {
 						"inside": true,

@@ -1178,6 +1178,78 @@ func _init() -> void:
 
 	print("✓ Section 23 Refactored 3-Tab Tiles Inspector & Decimal Precision passed all tests successfully!")
 
+	# =========================================================================
+	# SECTION 24: Testing Editor to Gameplay Visual Fidelity Pipeline (Borders & Corners)
+	# =========================================================================
+	print("--- SECTION 24: Testing Editor to Gameplay Visual Fidelity Pipeline ---")
+	
+	# 1. Load actual Level 1 from disk
+	var lvl1 := LevelMigration.load_laser_level(1)
+	assert(lvl1 != null, "Level 1 must load successfully")
+	var s24_st1 := lvl1.get_stage(1)
+	assert(s24_st1 != null, "Stage 1 of Level 1 must exist")
+	assert(s24_st1.grid_width == 8 and s24_st1.grid_height == 10, "Stage 1 must be 8x10 grid")
+	assert(s24_st1.border_visuals.size() > 0, "Stage 1 must have saved border visuals")
+	assert(s24_st1.corner_visuals.size() > 0, "Stage 1 must have saved corner visuals")
+
+	# 2. Asset Resolution for Level 1
+	var lvl1_border_asset := BoardVisualGen.resolve_asset_in_library(s24_st1, "border", "border_1")
+	assert(lvl1_border_asset == "res://Game/Assets/Board/ChatGPT2.png", "border_1 must authoritatively resolve to ChatGPT2.png")
+	var lvl1_corner_asset := BoardVisualGen.resolve_asset_in_library(s24_st1, "corner", "corner_1")
+	assert(lvl1_corner_asset == "res://Game/Assets/Board/ChatGPT1.png", "corner_1 must authoritatively resolve to ChatGPT1.png")
+	print("✓ Library asset resolution for Level 1 ChatGPT border and corner assets verified.")
+
+	# 3. Test Editor vs Gameplay relative transforms across responsive cell sizes
+	var editor_cell_sz := Vector2(48.0, 48.0)
+	var gameplay_cell_sz_64 := Vector2(64.0, 64.0)
+	var gameplay_cell_sz_80 := Vector2(80.0, 80.0)
+	var gameplay_cell_sz_100 := Vector2(100.0, 100.0)
+
+	var ed_pieces := BoardVisualGen.get_border_pieces(s24_st1, Vector2.ZERO, editor_cell_sz)
+	var gp_pieces_64 := BoardVisualGen.get_border_pieces(s24_st1, Vector2.ZERO, gameplay_cell_sz_64)
+	var gp_pieces_80 := BoardVisualGen.get_border_pieces(s24_st1, Vector2.ZERO, gameplay_cell_sz_80)
+	var gp_pieces_100 := BoardVisualGen.get_border_pieces(s24_st1, Vector2.ZERO, gameplay_cell_sz_100)
+
+	assert(ed_pieces.size() == gp_pieces_64.size(), "Piece counts must match exactly between Editor and Gameplay")
+	assert(ed_pieces.size() == gp_pieces_80.size(), "Piece counts must match exactly")
+	assert(ed_pieces.size() == gp_pieces_100.size(), "Piece counts must match exactly")
+
+	for i in range(ed_pieces.size()):
+		var ep := ed_pieces[i]
+		var gp64 := gp_pieces_64[i]
+		var gp80 := gp_pieces_80[i]
+		var gp100 := gp_pieces_100[i]
+
+		# Assets, rotation, mirror, side/corner must match identically
+		assert(ep.get("asset", "") == gp64.get("asset", ""), "Asset ID mismatch")
+		assert(is_equal_approx(float(ep.get("rotation", 0.0)), float(gp64.get("rotation", 0.0))), "Rotation mismatch")
+		assert(bool(ep.get("mirror_x", false)) == bool(gp64.get("mirror_x", false)), "Mirror X mismatch")
+		assert(bool(ep.get("mirror_y", false)) == bool(gp64.get("mirror_y", false)), "Mirror Y mismatch")
+
+		# Independent Scale X and Scale Y values must scale proportionally to cell_size
+		var ed_sx: float = ep.get("draw_scale_x")
+		var ed_sy: float = ep.get("draw_scale_y")
+		var gp64_sx: float = gp64.get("draw_scale_x")
+		var gp64_sy: float = gp64.get("draw_scale_y")
+		var gp80_sx: float = gp80.get("draw_scale_x")
+		var gp100_sx: float = gp100.get("draw_scale_x")
+
+		assert(is_equal_approx(gp64_sx, ed_sx * (64.0 / 48.0)), "Gameplay 64px draw_scale_x must scale proportionally")
+		assert(is_equal_approx(gp64_sy, ed_sy * (64.0 / 48.0)), "Gameplay 64px draw_scale_y must scale proportionally")
+		assert(is_equal_approx(gp80_sx, ed_sx * (80.0 / 48.0)), "Gameplay 80px draw_scale_x must scale proportionally")
+		assert(is_equal_approx(gp100_sx, ed_sx * (100.0 / 48.0)), "Gameplay 100px draw_scale_x must scale proportionally")
+
+		# Offset distance relative to cell_size must remain identical
+		var ep_center: Vector2 = ep.get("center")
+		var gp64_center: Vector2 = gp64.get("center")
+		# Relative normalized position (center / cell_size) must match
+		var norm_ed := ep_center / editor_cell_sz.x
+		var norm_gp64 := gp64_center / gameplay_cell_sz_64.x
+		assert(is_equal_approx(norm_ed.x, norm_gp64.x) and is_equal_approx(norm_ed.y, norm_gp64.y), "Relative normalized piece center must match Editor exactly")
+
+	print("✓ Proportional scaling, independent Scale X/Y, offsets, and relative geometry between Editor and Gameplay verified.")
+	print("✓ Section 24 Editor to Gameplay Visual Fidelity Pipeline passed all tests successfully!")
+
 	print("--- ALL EDITOR BUTTONS, TOOLS, MODALS, AND PANELS ARE 100% OPERATIONAL! ---")
 	quit(0)
 
