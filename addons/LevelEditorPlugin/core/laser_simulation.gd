@@ -112,13 +112,27 @@ static func simulate_stage(stage: LaserStageData, allow_entry_gate_emission: boo
 				total_path_len += 1
 
 				if not stage.is_inside_grid(next_pos):
-					final_segments.append({
-						"start": segment_start,
-						"end": current_pos,
-						"color": beam_color,
-						"hit_type": "boundary",
-						"hit_pos": next_pos
-					})
+					var edge_obj: LaserObjectData = object_map.get(next_pos, null)
+					if edge_obj != null and (edge_obj.type == LaserObjectData.ObjectType.EXIT_GATE or edge_obj.type == LaserObjectData.ObjectType.GOAL):
+						if edge_obj.type == LaserObjectData.ObjectType.EXIT_GATE:
+							exit_gates_hit[next_pos] = true
+						else:
+							goals_hit[next_pos] = true
+						final_segments.append({
+							"start": segment_start,
+							"end": next_pos,
+							"color": beam_color,
+							"hit_type": "exit_gate" if edge_obj.type == LaserObjectData.ObjectType.EXIT_GATE else "goal",
+							"hit_pos": next_pos
+						})
+					else:
+						final_segments.append({
+							"start": segment_start,
+							"end": current_pos,
+							"color": beam_color,
+							"hit_type": "boundary",
+							"hit_pos": next_pos
+						})
 					beam_stopped = true
 					break
 
@@ -269,19 +283,18 @@ static func simulate_stage(stage: LaserStageData, allow_entry_gate_emission: boo
 			break
 
 	var all_goals_ok: bool = false
-	if not exit_gates.is_empty():
-		all_goals_ok = true
-		for xg in exit_gates:
-			if not exit_gates_hit.get(xg.grid_pos, false):
-				all_goals_ok = false
-				break
-	elif not goals.is_empty():
+	if not goals.is_empty() or not exit_gates.is_empty():
 		all_goals_ok = true
 		for g in goals:
 			if not goals_hit.get(g.grid_pos, false):
 				all_goals_ok = false
 				break
-	elif stage.is_inside_grid(stage.exit_point):
+		if all_goals_ok:
+			for xg in exit_gates:
+				if not exit_gates_hit.get(xg.grid_pos, false):
+					all_goals_ok = false
+					break
+	elif stage.exit_point != Vector2i(-1, -1):
 		for seg in final_segments:
 			if seg.get("end", Vector2i(-1, -1)) == stage.exit_point or seg.get("hit_pos", Vector2i(-1, -1)) == stage.exit_point:
 				all_goals_ok = true

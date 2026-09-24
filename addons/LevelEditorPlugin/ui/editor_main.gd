@@ -11,7 +11,6 @@ var stage_tabs: StageTabs
 var grid_canvas: GridCanvas
 var object_palette: ObjectPalette
 var inspector_panel: InspectorPanel
-var bottom_panel: BottomPanel
 var level_browser: LevelBrowser
 var playtest_dialog: PlaytestDialog
 
@@ -154,8 +153,8 @@ func _setup_ui() -> void:
 	tb_hbox.add_child(spacer)
 
 	sim_dialog_btn = Button.new()
-	sim_dialog_btn.text = "🧪 Sim Dialog"
-	sim_dialog_btn.tooltip_text = "Open Lightweight In-Editor Mock Simulation Dialog"
+	sim_dialog_btn.text = "▶ Play Test"
+	sim_dialog_btn.tooltip_text = "Launch In-Editor Playtest Simulator (Self-Contained Editor Testing)"
 	sim_dialog_btn.custom_minimum_size = Vector2(0, 32)
 	sim_dialog_btn.add_theme_font_size_override("font_size", 12)
 	sim_dialog_btn.pressed.connect(_on_sim_dialog_pressed)
@@ -215,12 +214,6 @@ func _setup_ui() -> void:
 	inner_hsplit.split_offset = 750
 	outer_hsplit.add_child(inner_hsplit)
 
-	var center_vsplit := VSplitContainer.new()
-	center_vsplit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	center_vsplit.size_flags_vertical = Control.SIZE_EXPAND_FILL
-	center_vsplit.split_offset = 450
-	inner_hsplit.add_child(center_vsplit)
-
 	grid_canvas = GridCanvas.new()
 	grid_canvas.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	grid_canvas.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -233,14 +226,7 @@ func _setup_ui() -> void:
 	grid_canvas.corner_visual_selected.connect(_on_corner_visual_selected)
 	grid_canvas.hint_path_modified.connect(_on_hint_path_modified)
 	grid_canvas.undo_manager = undo_manager
-	center_vsplit.add_child(grid_canvas)
-
-	bottom_panel = BottomPanel.new()
-	bottom_panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	bottom_panel.size_flags_vertical = Control.SIZE_FILL
-	bottom_panel.error_item_clicked.connect(_on_error_item_focused)
-	bottom_panel.request_run_solvability.connect(_on_run_solvability_requested)
-	center_vsplit.add_child(bottom_panel)
+	inner_hsplit.add_child(grid_canvas)
 
 	inspector_panel = InspectorPanel.new()
 	inspector_panel.custom_minimum_size = Vector2(240, 0)
@@ -376,7 +362,6 @@ func set_level(lvl: LaserLevelData) -> void:
 		grid_canvas.zoom_to_fit()
 	_activate_stage(1, false)
 	_update_title()
-	_run_analysis_and_validation()
 	if level_browser != null:
 		level_browser.refresh_list()
 
@@ -394,7 +379,6 @@ func _activate_stage(stage_idx: int, refit_view: bool = true) -> void:
 				grid_canvas.zoom_to_fit()
 	if inspector_panel != null:
 		inspector_panel.set_stage(st)
-	_run_analysis_and_validation()
 
 func _on_canvas_stage_activated(idx: int) -> void:
 	if current_stage_idx == idx:
@@ -407,28 +391,12 @@ func _on_canvas_stage_activated(idx: int) -> void:
 		var st = current_level.get_stage(idx)
 		if inspector_panel != null:
 			inspector_panel.set_stage(st)
-	_run_analysis_and_validation()
 
 func _update_title() -> void:
 	if level_title_lbl == null or current_level == null:
 		return
 	var dirty_mark = " *" if undo_manager.is_dirty() else ""
 	level_title_lbl.text = "%s (ID: %d)%s" % [current_level.level_name, current_level.level_id, dirty_mark]
-
-func _run_analysis_and_validation() -> void:
-	if current_level == null or bottom_panel == null:
-		return
-	var val_res := LevelValidator.validate_level(current_level)
-	bottom_panel.update_validation(val_res)
-
-	var cur_st = current_level.get_stage(current_stage_idx)
-	var diff_res := DifficultyAnalyzer.analyze_stage(cur_st)
-	bottom_panel.update_difficulty(diff_res)
-
-	var solv_res := SolvabilityChecker.check_stage_solvability(cur_st, 300)
-	bottom_panel.update_solvability(solv_res)
-
-	bottom_panel.update_quality(current_level, val_res["is_valid"], solv_res["status"] == SolvabilityChecker.Status.SOLVABLE)
 
 func _on_stage_tab_selected(idx: int) -> void:
 	_activate_stage(idx, true)
@@ -472,7 +440,6 @@ func _on_stage_content_changed() -> void:
 		grid_canvas.recalculate_simulation()
 		grid_canvas.queue_redraw()
 	_update_title()
-	_run_analysis_and_validation()
 
 func _on_stage_cleared(idx: int, before_snap: LaserStageData = null) -> void:
 	var cur_st = current_level.get_stage(idx) if current_level != null else null
@@ -614,32 +581,6 @@ func _on_hint_path_modified(_stage: LaserStageData) -> void:
 
 func _on_level_settings_changed(lvl: LaserLevelData) -> void:
 	_on_stage_content_changed()
-
-func _on_error_item_focused(stage_idx: int, cell: Vector2i, obj_id: String) -> void:
-	if stage_idx > 0 and stage_idx != current_stage_idx:
-		stage_tabs.select_stage(stage_idx)
-
-	var st = current_level.get_stage(current_stage_idx)
-	var target_obj: LaserObjectData = null
-	if not obj_id.is_empty():
-		target_obj = st.get_object_by_id(obj_id)
-	elif cell != Vector2i(-1, -1):
-		target_obj = st.get_object_at(cell)
-
-	if target_obj != null:
-		grid_canvas.selected_objects = [target_obj]
-		grid_canvas.selection_changed.emit(grid_canvas.selected_objects)
-		inspector_panel.set_selected_object(target_obj)
-
-	if cell != Vector2i(-1, -1):
-		var cell_screen = grid_canvas.stage_cell_to_screen(current_stage_idx, cell)
-		grid_canvas.pan_offset += (grid_canvas.size * 0.5 - cell_screen)
-		grid_canvas.queue_redraw()
-
-func _on_run_solvability_requested() -> void:
-	var st = current_level.get_stage(current_stage_idx)
-	var solv_res := SolvabilityChecker.check_stage_solvability(st, 2000)
-	bottom_panel.update_solvability(solv_res)
 
 func _on_sim_dialog_pressed() -> void:
 	if current_level != null:

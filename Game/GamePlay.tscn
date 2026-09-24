@@ -2,7 +2,7 @@
 
 [ext_resource type="Script" uid="uid://cd3wmaerpmm8w" path="res://Game/Scripts/GamePlay.gd" id="1_gp"]
 [ext_resource type="PackedScene" path="res://Game/Objects/Scenes/Laser.tscn" id="3_laser"]
-[ext_resource type="PackedScene" path="res://Game/Objects/Scenes/FixedMirror.tscn" id="4_fmir"]
+[ext_resource type="PackedScene" uid="uid://bt821fct8u25e" path="res://Game/Objects/Scenes/FixedMirror.tscn" id="4_fmir"]
 [ext_resource type="PackedScene" path="res://Game/Objects/Scenes/MovableMirror.tscn" id="5_mmir"]
 [ext_resource type="PackedScene" path="res://Game/Objects/Scenes/RotatableMirror.tscn" id="6_rmir"]
 [ext_resource type="PackedScene" path="res://Game/Objects/Scenes/Rock.tscn" id="8_rock"]
@@ -47,6 +47,8 @@ level_number = 1
 script = ExtResource("19_grid")
 
 [node name="BeamLayer" type="Node2D" parent="." unique_id=369268362]
+z_index = 2
+z_as_relative = false
 level_number = 1
 script = ExtResource("20_beam")
 

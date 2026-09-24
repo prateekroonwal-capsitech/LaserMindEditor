@@ -11,6 +11,10 @@ var anim_progress: float = 1.0
 var current_tween: Tween = null
 var duration: float = 0.85
 
+func _ready() -> void:
+	z_index = 2
+	z_as_relative = false
+
 func _exit_tree() -> void:
 	if current_tween != null and current_tween.is_valid():
 		current_tween.kill()

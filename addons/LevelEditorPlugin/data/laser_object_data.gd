@@ -68,6 +68,7 @@ const TYPE_SHORT_NAMES: Dictionary = {
 @export var rotatable: bool = false
 @export var enabled: bool = true
 @export var target_id: String = ""
+@export var movable_area_id: String = ""
 @export var properties: Dictionary = {}
 
 func _init() -> void:
@@ -80,11 +81,21 @@ static func create(p_type: ObjectType, p_pos: Vector2i, p_rot: int = 0) -> Laser
 	obj.grid_pos = p_pos
 	obj.rotation_deg = p_rot
 	obj.id = generate_id(p_type)
-	if p_type == ObjectType.MOVABLE_MIRROR:
-		obj.movable = true
-	elif p_type == ObjectType.ROTATABLE_MIRROR:
-		obj.rotatable = true
+	obj.movable = (p_type == ObjectType.MOVABLE_MIRROR)
+	obj.rotatable = (p_type == ObjectType.ROTATABLE_MIRROR)
+	obj.color = Color(1.0, 0.2, 0.2, 1.0)
+	obj.target_id = ""
+	obj.movable_area_id = ""
+	obj.properties = {}
 	return obj
+
+func reset_to_type(p_type: ObjectType) -> void:
+	type = p_type
+	movable = (p_type == ObjectType.MOVABLE_MIRROR)
+	rotatable = (p_type == ObjectType.ROTATABLE_MIRROR)
+	target_id = ""
+	movable_area_id = ""
+	properties.clear()
 
 static func generate_id(p_type: ObjectType) -> String:
 	var prefix := "obj"
@@ -94,6 +105,7 @@ static func generate_id(p_type: ObjectType) -> String:
 		ObjectType.MOVABLE_MIRROR: prefix = "mmir"
 		ObjectType.ROTATABLE_MIRROR: prefix = "rmir"
 		ObjectType.MOVABLE_AREA: prefix = "marea"
+		ObjectType.GOAL: prefix = "goal"
 		ObjectType.ROCK: prefix = "rock"
 		ObjectType.ICE: prefix = "ice"
 		ObjectType.SPLITTER: prefix = "split"
@@ -130,6 +142,7 @@ func duplicate_data() -> LaserObjectData:
 	clone.rotatable = rotatable
 	clone.enabled = enabled
 	clone.target_id = target_id
+	clone.movable_area_id = movable_area_id
 	clone.properties = properties.duplicate(true)
 	return clone
 
@@ -144,6 +157,7 @@ func to_dict() -> Dictionary:
 		"rotatable": rotatable,
 		"enabled": enabled,
 		"target_id": target_id,
+		"movable_area_id": movable_area_id,
 		"properties": properties
 	}
 
@@ -160,6 +174,7 @@ static func from_dict(d: Dictionary) -> LaserObjectData:
 	obj.rotatable = bool(d.get("rotatable", false))
 	obj.enabled = bool(d.get("enabled", true))
 	obj.target_id = str(d.get("target_id", ""))
+	obj.movable_area_id = str(d.get("movable_area_id", ""))
 	obj.properties = d.get("properties", {}).duplicate(true)
 	return obj
 

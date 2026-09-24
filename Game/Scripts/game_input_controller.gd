@@ -89,6 +89,10 @@ func _handle_press(
 
 	var obj = current_stage.get_foreground_object_at(cell) if current_stage.has_method("get_foreground_object_at") else current_stage.get_object_at(cell)
 	if obj != null:
+		if obj.movable_area_id.is_empty():
+			var ma = current_stage.get_movable_area_at(obj.grid_pos)
+			if ma != null and not ma.movable_area_id.is_empty():
+				obj.movable_area_id = ma.movable_area_id
 		candidate_object = obj
 		candidate_start_pos = screen_pos
 		candidate_start_cell = obj.grid_pos
@@ -99,7 +103,7 @@ func _handle_release() -> void:
 	if is_actively_dragging:
 		drag_ended.emit()
 	elif candidate_object != null:
-		if candidate_object.rotatable:
+		if candidate_object.rotatable or candidate_object.type == LaserObjectData.ObjectType.ROTATABLE_MIRROR or candidate_object.type == LaserObjectData.ObjectType.SPLITTER:
 			candidate_object.rotation_deg = (candidate_object.rotation_deg + 45) % 360
 			object_rotated.emit(candidate_object)
 
@@ -119,15 +123,29 @@ func _handle_drag(
 	var target_cell := BoardLayoutManager.world_to_grid(screen_pos, grid_origin, cell_size)
 	if not is_actively_dragging:
 		if screen_pos.distance_to(candidate_start_pos) >= DRAG_THRESHOLD or target_cell != candidate_start_cell:
-			var can_move = candidate_object.type not in [LaserObjectData.ObjectType.LASER_SOURCE, LaserObjectData.ObjectType.GATE, LaserObjectData.ObjectType.EXIT_GATE, LaserObjectData.ObjectType.MOVABLE_AREA] and (candidate_object.movable or ObjectSpawner.is_cell_in_movable_area(current_stage, candidate_object.grid_pos))
+			var can_move = candidate_object.type not in [
+				LaserObjectData.ObjectType.LASER_SOURCE,
+				LaserObjectData.ObjectType.GATE,
+				LaserObjectData.ObjectType.EXIT_GATE,
+				LaserObjectData.ObjectType.GOAL,
+				LaserObjectData.ObjectType.MOVABLE_AREA
+			] and (
+				candidate_object.movable or
+				candidate_object.type == LaserObjectData.ObjectType.MOVABLE_MIRROR or
+				not candidate_object.movable_area_id.is_empty() or
+				current_stage.get_movable_area_at(candidate_object.grid_pos) != null
+			)
 			if not can_move:
 				return
+			if candidate_object.movable_area_id.is_empty():
+				var ma = current_stage.get_movable_area_at(candidate_object.grid_pos)
+				if ma != null and not ma.movable_area_id.is_empty():
+					candidate_object.movable_area_id = ma.movable_area_id
 			is_actively_dragging = true
 			dragged_object = candidate_object
 
-	if is_actively_dragging and dragged_object != null and current_stage.is_inside_grid(target_cell) and target_cell != dragged_object.grid_pos:
-		if not ObjectSpawner.has_movable_areas(current_stage) or ObjectSpawner.is_cell_in_movable_area(current_stage, target_cell):
-			var occ = current_stage.get_foreground_object_at(target_cell)
-			if occ == null or occ == dragged_object:
-				dragged_object.grid_pos = target_cell
-				object_dragged.emit(dragged_object)
+	if is_actively_dragging and dragged_object != null and target_cell != dragged_object.grid_pos:
+		var old_pos := dragged_object.grid_pos
+		var new_pos := current_stage.step_object_orthogonally(dragged_object, target_cell)
+		if new_pos != old_pos:
+			object_dragged.emit(dragged_object)

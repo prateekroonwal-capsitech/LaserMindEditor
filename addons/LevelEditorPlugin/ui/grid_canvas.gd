@@ -57,6 +57,7 @@ var active_tile_rot: int = 0
 var active_tile_rot_float: float = 0.0
 var active_cell_asset: String = "cell_1"
 var selected_cell_visual_pos: Vector2i = Vector2i(-1, -1)
+var active_movable_area_id: String = "area_001"
 
 # Outer Perimeter Border Visual Painting State
 var active_border_asset: String = "border_1"
@@ -164,6 +165,18 @@ func set_hint_mode(active: bool) -> void:
 func is_hint_mode() -> bool:
 	return is_hint_mode_active
 
+func set_active_movable_area_id(area_id: String) -> void:
+	active_movable_area_id = area_id
+	queue_redraw()
+
+func start_new_movable_area() -> String:
+	if current_stage != null:
+		active_movable_area_id = current_stage.get_next_movable_area_id()
+	else:
+		active_movable_area_id = "area_001"
+	queue_redraw()
+	return active_movable_area_id
+
 func get_stage_by_index(idx: int) -> LaserStageData:
 	for st in stages:
 		if st != null and st.stage_index == idx:
@@ -245,15 +258,30 @@ func screen_to_stage_and_cell(screen_pos: Vector2) -> Dictionary:
 				"stage": st,
 				"stage_idx": st.stage_index,
 				"cell": local_cell,
-				"world_cell": world_cell
+				"world_cell": world_cell,
+				"is_edge": false
 			}
+		# Check outer edge perimeter around the board (for outside laser sources, gates, exit gates)
+		if world_cell.x >= r.position.x - 1 and world_cell.x <= r.position.x + r.size.x and \
+		   world_cell.y >= r.position.y - 1 and world_cell.y <= r.position.y + r.size.y:
+			var local_cell = world_cell - r.position
+			if st.is_valid_edge_position(local_cell):
+				return {
+					"inside": true,
+					"stage": st,
+					"stage_idx": st.stage_index,
+					"cell": local_cell,
+					"world_cell": world_cell,
+					"is_edge": true
+				}
 
 	return {
 		"inside": false,
 		"stage": null,
 		"stage_idx": -1,
 		"cell": Vector2i(-1, -1),
-		"world_cell": world_cell
+		"world_cell": world_cell,
+		"is_edge": false
 	}
 
 func screen_to_stage_and_perimeter_border(screen_pos: Vector2) -> Dictionary:
@@ -609,10 +637,12 @@ func _gui_input(event: InputEvent) -> void:
 			var hit = screen_to_stage_and_cell(mm.position)
 			if hit.inside and hit.stage == current_stage:
 				var target_cell: Vector2i = hit.cell
-				if drag_object.grid_pos != target_cell and current_stage.get_object_at(target_cell) == null:
-					drag_object.grid_pos = target_cell
-					recalculate_simulation()
-					queue_redraw()
+				if drag_object.grid_pos != target_cell:
+					var old_pos = drag_object.grid_pos
+					var new_pos = current_stage.step_object_orthogonally(drag_object, target_cell)
+					if new_pos != old_pos:
+						recalculate_simulation()
+						queue_redraw()
 		else:
 			var hit = screen_to_stage_and_cell(mm.position)
 			var border_hit = screen_to_stage_and_perimeter_border(mm.position)
@@ -812,6 +842,10 @@ func _handle_left_click(mb: InputEventMouseButton) -> void:
 				var obj = st.get_object_at(cell)
 
 				if obj != null:
+					if obj.movable_area_id.is_empty():
+						var ma = st.get_movable_area_at(obj.grid_pos)
+						if ma != null and not ma.movable_area_id.is_empty():
+							obj.movable_area_id = ma.movable_area_id
 					if not Input.is_key_pressed(KEY_CTRL) and not Input.is_key_pressed(KEY_SHIFT):
 						selected_objects.clear()
 					if not selected_objects.has(obj):
@@ -927,32 +961,137 @@ func _handle_left_click(mb: InputEventMouseButton) -> void:
 			queue_redraw()
 
 func _paint_cell(st: LaserStageData, cell: Vector2i) -> void:
-	if st == null or not st.is_inside_grid(cell):
+	if st == null:
+		return
+	if not st.is_inside_grid(cell) and not st.is_valid_edge_position(cell):
 		return
 	last_painted_cell = cell
 	last_painted_stage = st
 
 	var snap = st.duplicate_data() if undo_manager != null else null
 
-	if active_palette_type == LaserObjectData.ObjectType.MOVABLE_AREA:
+	# --- 1. Edge-specific object handling (LASER_SOURCE, GATE, EXIT_GATE, GOAL) ---
+	if active_palette_type in [LaserObjectData.ObjectType.LASER_SOURCE, LaserObjectData.ObjectType.GATE, LaserObjectData.ObjectType.EXIT_GATE, LaserObjectData.ObjectType.GOAL]:
+		var target_edge_cell := cell
+		var effective_rot := active_palette_rot
+		if not st.is_valid_edge_position(cell):
+			if active_palette_rot == 0:
+				target_edge_cell = Vector2i(-1, cell.y)
+			elif active_palette_rot == 180:
+				target_edge_cell = Vector2i(st.grid_width, cell.y)
+			elif active_palette_rot == 90:
+				target_edge_cell = Vector2i(cell.x, -1)
+			elif active_palette_rot == 270:
+				target_edge_cell = Vector2i(cell.x, st.grid_height)
+			else:
+				target_edge_cell = Vector2i(-1, cell.y)
+		else:
+			if target_edge_cell.x == -1:
+				effective_rot = 0
+			elif target_edge_cell.x == st.grid_width:
+				effective_rot = 180
+			elif target_edge_cell.y == -1:
+				effective_rot = 90
+			elif target_edge_cell.y == st.grid_height:
+				effective_rot = 270
+
+		var existing_edge_obj = st.get_object_at(target_edge_cell)
+		if existing_edge_obj != null:
+			st.remove_object(existing_edge_obj)
+
+		if active_palette_type == LaserObjectData.ObjectType.LASER_SOURCE:
+			for o in st.objects:
+				if o != null and o.type == LaserObjectData.ObjectType.LASER_SOURCE:
+					st.remove_object(o)
+					break
+			st.entry_point = target_edge_cell
+			if target_edge_cell.x == -1:
+				st.entry_direction = LaserStageData.Direction.RIGHT
+			elif target_edge_cell.x == st.grid_width:
+				st.entry_direction = LaserStageData.Direction.LEFT
+			elif target_edge_cell.y == -1:
+				st.entry_direction = LaserStageData.Direction.DOWN
+			elif target_edge_cell.y == st.grid_height:
+				st.entry_direction = LaserStageData.Direction.UP
+		elif active_palette_type == LaserObjectData.ObjectType.EXIT_GATE or active_palette_type == LaserObjectData.ObjectType.GOAL:
+			st.exit_point = target_edge_cell
+			if target_edge_cell.x == -1:
+				st.exit_direction = LaserStageData.Direction.LEFT
+			elif target_edge_cell.x == st.grid_width:
+				st.exit_direction = LaserStageData.Direction.RIGHT
+			elif target_edge_cell.y == -1:
+				st.exit_direction = LaserStageData.Direction.UP
+			elif target_edge_cell.y == st.grid_height:
+				st.exit_direction = LaserStageData.Direction.DOWN
+
+		var new_obj = LaserObjectData.create(active_palette_type, target_edge_cell, effective_rot)
+		new_obj.color = active_palette_color
+		st.add_object(new_obj)
+		selected_objects = [new_obj]
+		object_selected.emit(new_obj)
+		selection_changed.emit(selected_objects)
+
+	# --- 2. MOVABLE_AREA tile-painting workflow ---
+	elif active_palette_type == LaserObjectData.ObjectType.MOVABLE_AREA:
+		if not st.is_inside_grid(cell):
+			return
+
+		var target_area_id := active_movable_area_id
+		if target_area_id.is_empty():
+			if not selected_objects.is_empty() and selected_objects[0] != null and selected_objects[0].type == LaserObjectData.ObjectType.MOVABLE_AREA and not selected_objects[0].movable_area_id.is_empty():
+				target_area_id = selected_objects[0].movable_area_id
+			elif not selected_objects.is_empty() and selected_objects[0] != null and not selected_objects[0].movable_area_id.is_empty():
+				target_area_id = selected_objects[0].movable_area_id
+			else:
+				var all_ids := st.get_all_movable_area_ids()
+				if all_ids.is_empty():
+					target_area_id = "area_001"
+				else:
+					target_area_id = all_ids[0]
+			active_movable_area_id = target_area_id
+
 		var existing_area = st.get_movable_area_at(cell)
 		if existing_area != null:
 			existing_area.color = active_palette_color
+			existing_area.movable_area_id = target_area_id
 			object_modified.emit(existing_area)
 		else:
 			var new_area = LaserObjectData.create(LaserObjectData.ObjectType.MOVABLE_AREA, cell, 0)
 			new_area.color = active_palette_color
+			new_area.movable_area_id = target_area_id
 			st.add_object(new_area)
 			selected_objects = [new_area]
 			object_selected.emit(new_area)
 			selection_changed.emit(selected_objects)
+
+		# If an existing foreground movable object sits on this cell, associate it
+		var fg = st.get_foreground_object_at(cell)
+		if fg != null and (fg.movable or fg.type == LaserObjectData.ObjectType.MOVABLE_MIRROR):
+			fg.movable = true
+			if fg.movable_area_id.is_empty():
+				fg.movable_area_id = target_area_id
+
+	# --- 3. Normal playable grid object placement & clean replacement (Requirements 3 & 4) ---
 	else:
+		if not st.is_inside_grid(cell):
+			return
+
 		var existing_fg = st.get_foreground_object_at(cell)
 		if existing_fg != null:
 			st.remove_object(existing_fg)
 
 		var new_obj = LaserObjectData.create(active_palette_type, cell, active_palette_rot)
 		new_obj.color = active_palette_color
+
+		var under_area = st.get_movable_area_at(cell)
+		if under_area != null and (new_obj.movable or new_obj.type == LaserObjectData.ObjectType.MOVABLE_MIRROR):
+			new_obj.movable = true
+			if not under_area.movable_area_id.is_empty():
+				new_obj.movable_area_id = under_area.movable_area_id
+			else:
+				under_area.movable_area_id = "area_%s" % new_obj.id
+				new_obj.movable_area_id = under_area.movable_area_id
+
 		if active_palette_type == LaserObjectData.ObjectType.CUSTOM:
 			var c_data = active_palette_custom_data
 			if c_data.is_empty():
@@ -982,7 +1121,7 @@ func _paint_cell(st: LaserStageData, cell: Vector2i) -> void:
 	queue_redraw()
 
 func _erase_cell(st: LaserStageData, cell: Vector2i) -> void:
-	if st == null or not st.is_inside_grid(cell):
+	if st == null or (not st.is_inside_grid(cell) and not st.is_valid_edge_position(cell)):
 		return
 	last_painted_cell = cell
 	last_painted_stage = st
@@ -1194,6 +1333,19 @@ func _draw() -> void:
 		draw_string(font, header_rect.position + Vector2(8, header_h * 0.68), title_txt, HORIZONTAL_ALIGNMENT_LEFT, int(board_sz.x - 16), int(12 * zoom_level), title_col)
 
 		var sim: Dictionary = simulation_results.get(st.stage_index, {})
+
+		# 1. Movable Area floor tiles
+		for obj in st.objects:
+			if obj != null and obj.enabled and obj.type == LaserObjectData.ObjectType.MOVABLE_AREA:
+				_draw_puzzle_object(obj, c_sz, r.position, sim)
+
+		# 2. Puzzle objects (mirrors, rocks, glass, switches, walls, etc.)
+		for obj in st.objects:
+			if obj == null or not obj.enabled or obj.type == LaserObjectData.ObjectType.MOVABLE_AREA:
+				continue
+			_draw_puzzle_object(obj, c_sz, r.position, sim)
+
+		# 3. Laser beams & glow rendered ABOVE puzzle objects
 		if show_laser_preview and sim.has("segments"):
 			var segments: Array = sim.get("segments", [])
 			for seg in segments:
@@ -1204,24 +1356,26 @@ func _draw() -> void:
 				var p1 = board_pos + (Vector2(s_cell) + Vector2(0.5, 0.5)) * c_sz
 				var p2 = board_pos + (Vector2(e_cell) + Vector2(0.5, 0.5)) * c_sz
 
-				draw_line(p1, p2, Color(b_color.r, b_color.g, b_color.b, 0.25), 6.0 * zoom_level, true)
-				draw_line(p1, p2, Color(b_color.r, b_color.g, b_color.b, 0.65), 3.0 * zoom_level, true)
-				draw_line(p1, p2, Color(1.0, 1.0, 1.0, 0.95), 1.2 * zoom_level, true)
-
-		for obj in st.objects:
-			if obj != null and obj.enabled and obj.type == LaserObjectData.ObjectType.MOVABLE_AREA:
-				_draw_puzzle_object(obj, c_sz, r.position, sim)
-
-		for obj in st.objects:
-			if obj == null or not obj.enabled or obj.type == LaserObjectData.ObjectType.MOVABLE_AREA:
-				continue
-			_draw_puzzle_object(obj, c_sz, r.position, sim)
+				draw_line(p1, p2, Color(b_color.r, b_color.g, b_color.b, 0.35), 7.0 * zoom_level, true)
+				draw_line(p1, p2, Color(b_color.r, b_color.g, b_color.b, 0.85), 3.5 * zoom_level, true)
+				draw_line(p1, p2, Color(1.0, 1.0, 1.0, 0.95), 1.4 * zoom_level, true)
+				draw_circle(p1, 2.5 * zoom_level, Color.WHITE)
+				draw_circle(p2, 2.5 * zoom_level, Color.WHITE)
 
 		for sel in selected_objects:
-			if sel != null and st.objects.has(sel) and st.is_inside_grid(sel.grid_pos):
+			if sel != null and st.objects.has(sel):
 				var sel_rect := Rect2(board_pos + Vector2(sel.grid_pos) * c_sz, Vector2(c_sz, c_sz))
 				draw_rect(sel_rect, Color(1.0, 0.8, 0.2, 0.2))
 				draw_rect(sel_rect, Color(1.0, 0.85, 0.1, 1.0), false, 2.5)
+
+				# Requirement 11: Highlight associated movable area when a movable object is selected
+				if sel.movable or not sel.movable_area_id.is_empty() or sel.type == LaserObjectData.ObjectType.MOVABLE_MIRROR:
+					var associated_areas = st.get_movable_areas_for_object(sel)
+					for marea in associated_areas:
+						if marea != null and marea.grid_pos != sel.grid_pos:
+							var ma_rect := Rect2(board_pos + Vector2(marea.grid_pos) * c_sz, Vector2(c_sz, c_sz))
+							draw_rect(ma_rect.grow(-2.0 * zoom_level), Color(0.2, 0.8, 1.0, 0.25), true)
+							draw_rect(ma_rect.grow(-1.0 * zoom_level), Color(0.3, 0.9, 1.0, 0.95), false, 2.0 * zoom_level)
 
 		# Selected Cell Visual Highlight
 		if is_active and selected_cell_visual_pos.x >= 0 and st.has_cell_visual(selected_cell_visual_pos):

@@ -133,7 +133,21 @@ static func validate_level(level: LaserLevelData) -> Dictionary:
 			if obj == null:
 				continue
 
-			if not st.is_inside_grid(obj.grid_pos):
+			var is_edge_obj: bool = obj.type in [
+				LaserObjectData.ObjectType.LASER_SOURCE,
+				LaserObjectData.ObjectType.GATE,
+				LaserObjectData.ObjectType.EXIT_GATE,
+				LaserObjectData.ObjectType.GOAL
+			]
+			var is_out_of_bounds: bool = false
+			if is_edge_obj:
+				if not st.is_inside_grid(obj.grid_pos) and not st.is_valid_edge_position(obj.grid_pos):
+					is_out_of_bounds = true
+			else:
+				if not st.is_inside_grid(obj.grid_pos):
+					is_out_of_bounds = true
+
+			if is_out_of_bounds:
 				items.append({
 					"severity": Severity.ERROR,
 					"stage": stage_num,

@@ -42,6 +42,8 @@ var obj_movable_chk: CheckBox
 var obj_rotatable_chk: CheckBox
 var obj_enabled_chk: CheckBox
 var obj_target_edit: LineEdit
+var obj_area_edit: LineEdit
+var obj_area_status_lbl: Label
 
 var tab_bar: HBoxContainer
 var tab_obj_btn: Button
@@ -298,13 +300,13 @@ func _setup_ui() -> void:
 	p_lbl.text = "Pos (X,Y):"
 	pos_row.add_child(p_lbl)
 	obj_pos_x = SpinBox.new()
-	obj_pos_x.min_value = 0
+	obj_pos_x.min_value = -1
 	obj_pos_x.max_value = 50
 	obj_pos_x.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	obj_pos_x.value_changed.connect(_on_obj_pos_changed)
 	pos_row.add_child(obj_pos_x)
 	obj_pos_y = SpinBox.new()
-	obj_pos_y.min_value = 0
+	obj_pos_y.min_value = -1
 	obj_pos_y.max_value = 50
 	obj_pos_y.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	obj_pos_y.value_changed.connect(_on_obj_pos_changed)
@@ -357,6 +359,23 @@ func _setup_ui() -> void:
 	obj_target_edit.text_changed.connect(_on_obj_target_changed)
 	conn_row.add_child(obj_target_edit)
 	obj_section.add_child(conn_row)
+
+	var area_row := HBoxContainer.new()
+	var a_lbl := Label.new()
+	a_lbl.text = "Area ID:"
+	area_row.add_child(a_lbl)
+	obj_area_edit = LineEdit.new()
+	obj_area_edit.placeholder_text = "e.g. area_001"
+	obj_area_edit.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	obj_area_edit.text_changed.connect(_on_obj_area_id_changed)
+	area_row.add_child(obj_area_edit)
+	obj_section.add_child(area_row)
+
+	obj_area_status_lbl = Label.new()
+	obj_area_status_lbl.text = ""
+	obj_area_status_lbl.add_theme_font_size_override("font_size", 10)
+	obj_area_status_lbl.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	obj_section.add_child(obj_area_status_lbl)
 
 	var obj_btn_row := HBoxContainer.new()
 	var dup_btn := Button.new()
@@ -1607,6 +1626,11 @@ func _update_object_display() -> void:
 		obj_rotatable_chk.disabled = true
 		obj_enabled_chk.disabled = true
 		obj_target_edit.editable = false
+		if obj_area_edit != null:
+			obj_area_edit.editable = false
+			obj_area_edit.text = ""
+		if obj_area_status_lbl != null:
+			obj_area_status_lbl.text = ""
 		return
 
 	obj_type_option.disabled = false
@@ -1618,8 +1642,16 @@ func _update_object_display() -> void:
 	obj_rotatable_chk.disabled = false
 	obj_enabled_chk.disabled = false
 	obj_target_edit.editable = true
+	if obj_area_edit != null:
+		obj_area_edit.editable = true
+		obj_area_edit.text = selected_object.movable_area_id
+	if obj_area_status_lbl != null:
+		obj_area_status_lbl.text = ""
 
-	obj_id_lbl.text = "ID: %s" % selected_object.id
+	var id_txt := "ID: %s" % selected_object.id
+	if not selected_object.movable_area_id.is_empty():
+		id_txt += "  [Area: %s]" % selected_object.movable_area_id
+	obj_id_lbl.text = id_txt
 	_sync_type_dropdown_selection()
 	obj_pos_x.set_value_no_signal(selected_object.grid_pos.x)
 	obj_pos_y.set_value_no_signal(selected_object.grid_pos.y)
@@ -1762,6 +1794,37 @@ func _on_obj_target_changed(txt: String) -> void:
 	if selected_object != null:
 		selected_object.target_id = txt.strip_edges()
 		object_changed.emit(selected_object)
+
+func _on_obj_area_id_changed(new_text: String) -> void:
+	if selected_object == null or current_stage == null:
+		return
+	var trimmed = new_text.strip_edges()
+	if selected_object.type == LaserObjectData.ObjectType.MOVABLE_AREA:
+		selected_object.movable_area_id = trimmed
+		if obj_area_status_lbl != null:
+			obj_area_status_lbl.text = "Area cell ID: '%s'" % trimmed
+			obj_area_status_lbl.modulate = Color(0.4, 0.9, 1.0)
+		object_changed.emit(selected_object)
+	else:
+		if trimmed.is_empty():
+			selected_object.movable_area_id = ""
+			if obj_area_status_lbl != null:
+				obj_area_status_lbl.text = "Movable Area unassigned"
+				obj_area_status_lbl.modulate = Color(0.7, 0.7, 0.7)
+			object_changed.emit(selected_object)
+		elif current_stage.is_cell_in_area_id(trimmed, selected_object.grid_pos):
+			selected_object.movable_area_id = trimmed
+			selected_object.movable = true
+			obj_movable_chk.set_pressed_no_signal(true)
+			if obj_area_status_lbl != null:
+				obj_area_status_lbl.text = "Associated with %s ✓" % trimmed
+				obj_area_status_lbl.modulate = Color(0.3, 1.0, 0.4)
+			object_changed.emit(selected_object)
+		else:
+			if obj_area_status_lbl != null:
+				obj_area_status_lbl.text = "Movable object must be inside the selected Movable Area."
+				obj_area_status_lbl.modulate = Color(1.0, 0.35, 0.35)
+			push_warning("Movable object must be inside the selected Movable Area.")
 
 func _on_stage_dimensions_changed(_v: float) -> void:
 	if current_stage != null:

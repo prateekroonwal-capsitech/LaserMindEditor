@@ -4,6 +4,7 @@ class_name ProceduralLaserObject
 var obj_data: LaserObjectData = null
 var cell_size: Vector2 = Vector2(64, 64)
 var is_switch_on: bool = false
+var is_goal_satisfied: bool = false
 var get_world_pos_fn: Callable
 
 func setup(p_obj: LaserObjectData, p_cell_size: Vector2, p_get_world_pos: Callable) -> void:
@@ -28,6 +29,9 @@ func on_simulation_updated(sim_res: Dictionary) -> void:
 	if obj_data.type in [LaserObjectData.ObjectType.SWITCH, LaserObjectData.ObjectType.GATE_SWITCH]:
 		is_switch_on = sim_res.get("switches_hit", {}).get(obj_data.grid_pos, false)
 		queue_redraw()
+	elif obj_data.type == LaserObjectData.ObjectType.GOAL:
+		is_goal_satisfied = sim_res.get("goals_hit", {}).get(obj_data.grid_pos, false) or sim_res.get("all_goals_satisfied", false)
+		queue_redraw()
 
 func _draw() -> void:
 	if obj_data == null:
@@ -43,6 +47,15 @@ func _draw() -> void:
 			var rot_rad = deg_to_rad(float(obj_data.rotation_deg))
 			var p_tip = Vector2(rad * 1.1, 0).rotated(rot_rad)
 			draw_line(Vector2.ZERO, p_tip, obj_data.color, 3.5)
+
+		LaserObjectData.ObjectType.GOAL:
+			var g_hit = is_goal_satisfied
+			var g_col = Color(0.2, 1.0, 0.4) if g_hit else obj_data.color
+			draw_circle(Vector2.ZERO, rad * 0.85, Color(0.15, 0.15, 0.2))
+			draw_arc(Vector2.ZERO, rad * 0.7, 0, TAU, 16, g_col, 2.5)
+			draw_circle(Vector2.ZERO, rad * 0.35, g_col)
+			if g_hit:
+				draw_circle(Vector2.ZERO, rad * 0.15, Color.WHITE)
 
 		LaserObjectData.ObjectType.MOVABLE_AREA:
 			var r_sz = rad * 2.0

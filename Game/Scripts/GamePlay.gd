@@ -91,6 +91,7 @@ func _init_components() -> void:
 		LaserObjectData.ObjectType.MOVABLE_MIRROR: movable_mirror_scene if movable_mirror_scene != null else fixed_mirror_scene,
 		LaserObjectData.ObjectType.ROTATABLE_MIRROR: rotatable_mirror_scene if rotatable_mirror_scene != null else fixed_mirror_scene,
 		LaserObjectData.ObjectType.MOVABLE_AREA: movable_area_scene,
+		LaserObjectData.ObjectType.GOAL: load("res://Game/Objects/Scenes/Goal.tscn") if ResourceLoader.exists("res://Game/Objects/Scenes/Goal.tscn") else null,
 		LaserObjectData.ObjectType.ROCK: rock_scene,
 		LaserObjectData.ObjectType.ICE: ice_scene,
 		LaserObjectData.ObjectType.SPLITTER: splitter_scene,
@@ -104,6 +105,10 @@ func _init_components() -> void:
 	_spawner.set_prefabs(prefab_map)
 	_spawner.custom_named_scenes = custom_named_scenes
 	_spawner.sync_custom_scenes_registry()
+
+	if beam_renderer != null:
+		beam_renderer.z_index = 2
+		beam_renderer.z_as_relative = false
 
 	_input_controller.request_quit_game.connect(func(): get_tree().quit())
 	_input_controller.request_restart_stage.connect(func(): load_stage(current_stage_idx))
@@ -284,14 +289,16 @@ func load_stage(stage_num: int) -> void:
 		level_data.level_id, current_stage_idx, current_stage.grid_width, current_stage.grid_height
 	])
 
-	# Spawn MovableArea nodes on floor layer (z = 0)
+	# Spawn active puzzle objects on foreground layer (z = 1)
+	# Editor/design-time objects (Movable Area, Laser Source, Goal, Entry/Exit Gates) are invisible in actual game
 	for obj in current_stage.objects:
-		if obj != null and obj.enabled and obj.type == LaserObjectData.ObjectType.MOVABLE_AREA:
-			_spawn_and_register(obj, 0)
-
-	# Spawn active objects on foreground layer (z = 1)
-	for obj in current_stage.objects:
-		if obj != null and obj.enabled and obj.type != LaserObjectData.ObjectType.MOVABLE_AREA:
+		if obj != null and obj.enabled and obj.type not in [
+			LaserObjectData.ObjectType.MOVABLE_AREA,
+			LaserObjectData.ObjectType.GATE,
+			LaserObjectData.ObjectType.EXIT_GATE,
+			LaserObjectData.ObjectType.LASER_SOURCE,
+			LaserObjectData.ObjectType.GOAL
+		]:
 			_spawn_and_register(obj, 1)
 
 	recalculate_simulation(true)

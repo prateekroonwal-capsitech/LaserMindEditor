@@ -556,6 +556,190 @@ func has_movable_areas() -> bool:
 func is_cell_in_movable_area(pos: Vector2i) -> bool:
 	return get_movable_area_at(pos) != null
 
+func is_valid_edge_position(pos: Vector2i) -> bool:
+	if pos.x == -1 and pos.y >= 0 and pos.y < grid_height:
+		return true
+	if pos.x == grid_width and pos.y >= 0 and pos.y < grid_height:
+		return true
+	if pos.y == -1 and pos.x >= 0 and pos.x < grid_width:
+		return true
+	if pos.y == grid_height and pos.x >= 0 and pos.x < grid_width:
+		return true
+	return false
+
+func get_movable_area_id_at(pos: Vector2i) -> String:
+	var marea = get_movable_area_at(pos)
+	if marea != null:
+		return marea.movable_area_id
+	return ""
+
+func get_all_movable_area_ids() -> Array[String]:
+	var ids: Array[String] = []
+	for obj in objects:
+		if obj != null and obj.enabled and obj.type == LaserObjectData.ObjectType.MOVABLE_AREA:
+			var aid = obj.movable_area_id.strip_edges()
+			if not aid.is_empty() and not ids.has(aid):
+				ids.append(aid)
+	return ids
+
+func get_movable_area_cells(area_id: String) -> Array[Vector2i]:
+	var cells: Array[Vector2i] = []
+	for obj in objects:
+		if obj != null and obj.enabled and obj.type == LaserObjectData.ObjectType.MOVABLE_AREA:
+			if obj.movable_area_id == area_id or (area_id.is_empty() and obj.movable_area_id.is_empty()):
+				if not cells.has(obj.grid_pos):
+					cells.append(obj.grid_pos)
+	return cells
+
+func is_cell_in_area_id(area_id: String, cell: Vector2i) -> bool:
+	if not is_inside_grid(cell):
+		return false
+	var marea = get_movable_area_at(cell)
+	if marea == null or not marea.enabled:
+		return false
+	if area_id.is_empty():
+		return true
+	return marea.movable_area_id == area_id
+
+func get_next_movable_area_id() -> String:
+	var existing = get_all_movable_area_ids()
+	var max_idx := 0
+	for aid in existing:
+		if aid.begins_with("area_"):
+			var num_str = aid.substr(5)
+			if num_str.is_valid_int():
+				max_idx = max(max_idx, num_str.to_int())
+	return "area_%03d" % (max_idx + 1)
+
+func associate_object_with_area(obj: LaserObjectData, area_id: String) -> Dictionary:
+	if obj == null:
+		return {"success": false, "message": "No object provided."}
+	if area_id.is_empty():
+		obj.movable_area_id = ""
+		return {"success": true, "message": "Area disassociated."}
+	if not is_cell_in_area_id(area_id, obj.grid_pos):
+		return {"success": false, "message": "Movable object must be inside the selected Movable Area."}
+	obj.movable_area_id = area_id
+	obj.movable = true
+	return {"success": true, "message": "Object associated with %s" % area_id}
+
+func get_movable_areas_for_object(obj: LaserObjectData) -> Array[LaserObjectData]:
+	var result: Array[LaserObjectData] = []
+	if obj == null:
+		return result
+	var target_area_id = obj.movable_area_id
+	if target_area_id.is_empty():
+		var at_obj_area = get_movable_area_at(obj.grid_pos)
+		if at_obj_area != null:
+			target_area_id = at_obj_area.movable_area_id
+
+	for o in objects:
+		if o != null and o.enabled and o.type == LaserObjectData.ObjectType.MOVABLE_AREA:
+			if not target_area_id.is_empty():
+				if o.movable_area_id == target_area_id:
+					result.append(o)
+			else:
+				result.append(o)
+	return result
+
+func is_cell_in_object_movable_area(obj: LaserObjectData, cell: Vector2i) -> bool:
+	if obj == null or not is_inside_grid(cell):
+		return false
+	var marea = get_movable_area_at(cell)
+	if marea == null or not marea.enabled:
+		return false
+
+	var target_area_id = obj.movable_area_id
+	if target_area_id.is_empty():
+		var at_pos = get_movable_area_at(obj.grid_pos)
+		if at_pos != null and not at_pos.movable_area_id.is_empty():
+			target_area_id = at_pos.movable_area_id
+
+	if not target_area_id.is_empty():
+		return marea.movable_area_id == target_area_id
+
+	# Fallback for unassigned single area: allow any area connected to object position
+	return true
+
+func is_cell_valid_for_object_move(obj: LaserObjectData, target_cell: Vector2i) -> bool:
+	if not is_inside_grid(target_cell):
+		return false
+	var fg = get_foreground_object_at(target_cell)
+	if fg != null and fg != obj:
+		return false
+	if has_movable_areas() or obj.movable or not obj.movable_area_id.is_empty() or get_movable_area_at(obj.grid_pos) != null:
+		if not is_cell_in_object_movable_area(obj, target_cell):
+			return false
+	return true
+
+func step_object_orthogonally(obj: LaserObjectData, target_cell: Vector2i) -> Vector2i:
+	if obj == null:
+		return Vector2i(-1, -1)
+	if not is_inside_grid(obj.grid_pos):
+		return obj.grid_pos
+
+	# Lock movable_area_id if not set and sitting on a movable area
+	if obj.movable_area_id.is_empty():
+		var cur_ma = get_movable_area_at(obj.grid_pos)
+		if cur_ma != null and not cur_ma.movable_area_id.is_empty():
+			obj.movable_area_id = cur_ma.movable_area_id
+
+	var current := obj.grid_pos
+	if current == target_cell:
+		return current
+
+	var delta := target_cell - current
+
+	# Strictly block diagonal movement (both x and y non-zero)
+	if delta.x != 0 and delta.y != 0:
+		return current
+
+	# Single-axis straight orthogonal movement (delta.x != 0 XOR delta.y != 0)
+	while current != target_cell:
+		var step_delta := target_cell - current
+		if step_delta.x != 0 and step_delta.y != 0:
+			break # Diagonal delta detected - block!
+
+		var next_step := current
+		if step_delta.x != 0:
+			next_step = current + Vector2i(sign(step_delta.x), 0)
+		elif step_delta.y != 0:
+			next_step = current + Vector2i(0, sign(step_delta.y))
+
+		if next_step != current and is_cell_valid_for_object_move(obj, next_step):
+			current = next_step
+		else:
+			break # Blocked by obstacle or area boundary
+
+	obj.grid_pos = current
+	return current
+
+func has_orthogonal_path_in_area(obj: LaserObjectData, from_cell: Vector2i, to_cell: Vector2i) -> bool:
+	if from_cell == to_cell:
+		return true
+	if not is_cell_in_object_movable_area(obj, to_cell):
+		return false
+	var fg = get_foreground_object_at(to_cell)
+	if fg != null and fg != obj:
+		return false
+
+	var queue: Array[Vector2i] = [from_cell]
+	var visited: Dictionary = {from_cell: true}
+	var dirs: Array[Vector2i] = [Vector2i(1, 0), Vector2i(-1, 0), Vector2i(0, 1), Vector2i(0, -1)]
+
+	while not queue.is_empty():
+		var curr = queue.pop_front()
+		if curr == to_cell:
+			return true
+		for d in dirs:
+			var nxt = curr + d
+			if not visited.has(nxt) and is_inside_grid(nxt) and is_cell_in_object_movable_area(obj, nxt):
+				var occ = get_foreground_object_at(nxt)
+				if occ == null or occ == obj or nxt == to_cell:
+					visited[nxt] = true
+					queue.append(nxt)
+	return false
+
 func is_inside_grid(pos: Vector2i) -> bool:
 	return pos.x >= 0 and pos.x < grid_width and pos.y >= 0 and pos.y < grid_height
 

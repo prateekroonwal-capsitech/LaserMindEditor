@@ -1,11 +1,11 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene format=3 uid="uid://bt821fct8u25e"]
 
-[ext_resource type="Script" path="res://Game/Objects/Scripts/FixedMirror.gd" id="1_fmir"]
-[ext_resource type="Texture2D" path="res://Game/Assets/Sprites/FixedMirror.svg" id="2_tex"]
+[ext_resource type="Script" uid="uid://df6l0ctrcxjue" path="res://Game/Objects/Scripts/FixedMirror.gd" id="1_fmir"]
+[ext_resource type="Texture2D" uid="uid://cf20oi0ylxap7" path="res://Game/Assets/Sprites/FixedMirror.svg" id="2_tex"]
 
-[node name="FixedMirror" type="Node2D"]
+[node name="FixedMirror" type="Node2D" unique_id=587117951]
 script = ExtResource("1_fmir")
 
-[node name="Sprite2D" type="Sprite2D" parent="."]
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=1895726131]
 scale = Vector2(0.5, 0.5)
 texture = ExtResource("2_tex")

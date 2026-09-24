@@ -96,6 +96,7 @@ func _setup_ui() -> void:
 	_add_item_btn(block_grid, "🔴 Laser", LaserObjectData.ObjectType.LASER_SOURCE)
 
 	var logic_grid := _create_section(vbox, "LOGIC")
+	_add_item_btn(logic_grid, "🎯 Target / Goal", LaserObjectData.ObjectType.GOAL)
 	_add_item_btn(logic_grid, "🚪 Entry Gate", LaserObjectData.ObjectType.GATE)
 	_add_item_btn(logic_grid, "🚪 Exit Gate", LaserObjectData.ObjectType.EXIT_GATE)
 	_add_item_btn(logic_grid, "🔘 Switch", LaserObjectData.ObjectType.SWITCH)
