@@ -104,7 +104,8 @@ func _handle_release() -> void:
 		drag_ended.emit()
 	elif candidate_object != null:
 		if candidate_object.rotatable or candidate_object.type == LaserObjectData.ObjectType.ROTATABLE_MIRROR or candidate_object.type == LaserObjectData.ObjectType.SPLITTER:
-			candidate_object.rotation_deg = (candidate_object.rotation_deg + 45) % 360
+			var step: int = 90 if candidate_object.type == LaserObjectData.ObjectType.SPLITTER else 45
+			candidate_object.rotation_deg = (candidate_object.rotation_deg + step) % 360
 			object_rotated.emit(candidate_object)
 
 	candidate_object = null

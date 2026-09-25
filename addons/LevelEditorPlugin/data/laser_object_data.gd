@@ -82,7 +82,7 @@ static func create(p_type: ObjectType, p_pos: Vector2i, p_rot: int = 0) -> Laser
 	obj.rotation_deg = p_rot
 	obj.id = generate_id(p_type)
 	obj.movable = (p_type == ObjectType.MOVABLE_MIRROR)
-	obj.rotatable = (p_type == ObjectType.ROTATABLE_MIRROR)
+	obj.rotatable = (p_type == ObjectType.ROTATABLE_MIRROR or p_type == ObjectType.SPLITTER)
 	obj.color = Color(1.0, 0.2, 0.2, 1.0)
 	obj.target_id = ""
 	obj.movable_area_id = ""
@@ -92,7 +92,7 @@ static func create(p_type: ObjectType, p_pos: Vector2i, p_rot: int = 0) -> Laser
 func reset_to_type(p_type: ObjectType) -> void:
 	type = p_type
 	movable = (p_type == ObjectType.MOVABLE_MIRROR)
-	rotatable = (p_type == ObjectType.ROTATABLE_MIRROR)
+	rotatable = (p_type == ObjectType.ROTATABLE_MIRROR or p_type == ObjectType.SPLITTER)
 	target_id = ""
 	movable_area_id = ""
 	properties.clear()

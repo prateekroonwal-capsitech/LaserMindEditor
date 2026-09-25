@@ -175,6 +175,10 @@ func _process(delta: float) -> void:
 	universal_timer_lbl.text = "⏳ Level Time: %.1fs" % universal_time_remaining
 	stage_timer_lbl.text = "Stage Time: %.1fs" % current_stage_elapsed
 
+var carried_laser_color: Color = Color(-1, -1, -1, -1)
+var carried_laser_pos: Vector2i = Vector2i(-999, -999)
+var carried_laser_dir: Vector2i = Vector2i.ZERO
+
 func _load_stage(idx: int) -> void:
 	current_stage_idx = idx
 	current_stage = level_data.get_stage(idx)
@@ -184,7 +188,12 @@ func _load_stage(idx: int) -> void:
 	message_overlay.visible = false
 	is_playing = true
 
-	playtest_canvas.set_stage(current_stage)
+	if idx == 1:
+		carried_laser_color = Color(-1, -1, -1, -1)
+		carried_laser_pos = Vector2i(-999, -999)
+		carried_laser_dir = Vector2i.ZERO
+
+	playtest_canvas.set_stage(current_stage, carried_laser_color, carried_laser_pos, carried_laser_dir, true)
 
 func _on_restart_pressed() -> void:
 	if level_data == null:
@@ -197,12 +206,32 @@ func _on_restart_pressed() -> void:
 	current_stage_elapsed = 0.0
 	message_overlay.visible = false
 	is_playing = true
-	playtest_canvas.set_stage(current_stage)
+	playtest_canvas.set_stage(current_stage, carried_laser_color, carried_laser_pos, carried_laser_dir, true)
 
 func _on_stage_cleared() -> void:
 	is_playing = false
 	var bonus: float = current_stage.time_bonus if current_stage != null else 5.0
 	universal_time_remaining += bonus
+
+	if playtest_canvas != null and playtest_canvas.simulation_res != null:
+		if playtest_canvas.simulation_res.has("exit_laser_color") and playtest_canvas.simulation_res["exit_laser_color"].a >= 0.0:
+			carried_laser_color = playtest_canvas.simulation_res.get("exit_laser_color", Color(1.0, 0.2, 0.2, 1.0))
+			var exit_dir: Vector2i = playtest_canvas.simulation_res.get("exit_laser_dir", Vector2i.ZERO)
+			carried_laser_dir = exit_dir
+			if level_data != null and current_stage_idx < level_data.get_stage_count():
+				var next_st: LaserStageData = level_data.get_stage(current_stage_idx + 1)
+				if next_st != null:
+					var eg_obj: LaserObjectData = null
+					for obj in next_st.objects:
+						if obj != null and obj.enabled and obj.type == LaserObjectData.ObjectType.GATE:
+							eg_obj = obj
+							break
+					if eg_obj != null:
+						carried_laser_pos = eg_obj.grid_pos
+						var e_dir = eg_obj.get_direction_vector()
+						carried_laser_dir = e_dir if e_dir != Vector2i.ZERO else (exit_dir if exit_dir != Vector2i.ZERO else LaserSimulation._infer_inward_direction(eg_obj.grid_pos, next_st.grid_width, next_st.grid_height))
+					elif next_st.entry_point != Vector2i(-1, -1):
+						carried_laser_pos = next_st.entry_point
 
 	var total_st: int = level_data.get_stage_count() if level_data != null else LaserLevelData.STAGE_COUNT
 	if current_stage_idx < total_st:
@@ -258,6 +287,9 @@ class PlaytestCanvas extends Control:
 
 	var stage: LaserStageData = null
 	var simulation_res: Dictionary = {}
+	var incoming_laser_color: Color = Color(-1, -1, -1, -1)
+	var incoming_laser_pos: Vector2i = Vector2i(-999, -999)
+	var incoming_laser_dir: Vector2i = Vector2i.ZERO
 	var cell_size: float = 48.0
 	var zoom_level: float = 1.0
 	var pan_offset: Vector2 = Vector2(80, 60)
@@ -270,14 +302,51 @@ class PlaytestCanvas extends Control:
 
 	const DRAG_THRESHOLD: float = 6.0
 
-	func set_stage(p_stage: LaserStageData) -> void:
+	@export var laser_travel_speed: float = 650.0
+	@export var laser_head_size: float = 8.0
+	@export var laser_head_glow: float = 1.0
+
+	var traversed_distance: float = 0.0
+	var total_path_distance: float = 0.0
+	var is_traversing: bool = false
+	var cached_points: Array[Dictionary] = []
+
+	func reset_laser_traversal() -> void:
+		traversed_distance = 0.0
+		is_traversing = false
+		if is_inside_tree():
+			queue_redraw()
+
+	func clear_beams() -> void:
+		simulation_res.clear()
+		cached_points.clear()
+		total_path_distance = 0.0
+		traversed_distance = 0.0
+		is_traversing = false
+		if is_inside_tree():
+			queue_redraw()
+
+	func force_complete_traversal() -> void:
+		traversed_distance = total_path_distance
+		is_traversing = false
+		if simulation_res.get("all_goals_satisfied", false) and not win_triggered:
+			win_triggered = true
+			stage_cleared.emit()
+		if is_inside_tree():
+			queue_redraw()
+
+	func set_stage(p_stage: LaserStageData, in_color: Color = Color(-1, -1, -1, -1), in_pos: Vector2i = Vector2i(-999, -999), in_dir: Vector2i = Vector2i.ZERO, animate_shoot: bool = true) -> void:
 		stage = p_stage
+		incoming_laser_color = in_color
+		incoming_laser_pos = in_pos
+		incoming_laser_dir = in_dir
 		win_triggered = false
 		active_object = null
 		is_dragging_active = false
-		recompute()
+		recompute(animate_shoot)
 		_fit()
-		queue_redraw()
+		if is_inside_tree():
+			queue_redraw()
 
 	func _notification(what: int) -> void:
 		if what == NOTIFICATION_RESIZED:
@@ -293,14 +362,85 @@ class PlaytestCanvas extends Control:
 		var zy = (size.y - 80.0) / max(1.0, h_px)
 		zoom_level = clamp(min(zx, zy), 0.4, 2.0)
 		pan_offset = (size - Vector2(w_px, h_px) * zoom_level) * 0.5
+		_rebuild_cached_points()
 
-	func recompute() -> void:
+	func recompute(animate_shoot: bool = false, preserve_progress: bool = false) -> void:
 		if stage != null:
-			simulation_res = LaserSimulation.simulate_stage(stage)
-			if simulation_res.get("all_goals_satisfied", false) and not win_triggered:
-				win_triggered = true
-				stage_cleared.emit()
-		queue_redraw()
+			simulation_res = LaserSimulation.simulate_stage(stage, true, incoming_laser_color, incoming_laser_pos, incoming_laser_dir)
+			if preserve_progress:
+				var old_dist: float = traversed_distance
+				_rebuild_cached_points()
+				traversed_distance = minf(old_dist, total_path_distance)
+				if traversed_distance < total_path_distance:
+					is_traversing = true
+				else:
+					is_traversing = false
+					if simulation_res.get("all_goals_satisfied", false) and not win_triggered:
+						win_triggered = true
+						stage_cleared.emit()
+			else:
+				_rebuild_cached_points()
+				if animate_shoot and total_path_distance > 0.0:
+					traversed_distance = 0.0
+					is_traversing = true
+				else:
+					traversed_distance = total_path_distance
+					is_traversing = false
+					if simulation_res.get("all_goals_satisfied", false) and not win_triggered:
+						win_triggered = true
+						stage_cleared.emit()
+		if is_inside_tree():
+			queue_redraw()
+
+	func _rebuild_cached_points() -> void:
+		cached_points.clear()
+		total_path_distance = 0.0
+		if stage == null or simulation_res.is_empty():
+			return
+		var segments: Array = simulation_res.get("segments", [])
+		var c_sz = cell_size * zoom_level
+		var prev_chain_dist: float = 0.0
+		for seg in segments:
+			var s_cell: Vector2i = seg.get("start", Vector2i.ZERO)
+			var e_cell: Vector2i = seg.get("end", Vector2i.ZERO)
+			var p1 = pan_offset + (Vector2(s_cell) + Vector2(0.5, 0.5)) * c_sz
+			var p2 = pan_offset + (Vector2(e_cell) + Vector2(0.5, 0.5)) * c_sz
+			var d: float = p1.distance_to(p2)
+			var s_dist: float
+			var e_dist: float
+			if seg.has("start_dist") and seg.has("end_dist"):
+				s_dist = float(seg.get("start_dist", 0.0)) * c_sz
+				e_dist = float(seg.get("end_dist", 0.0)) * c_sz
+			else:
+				s_dist = prev_chain_dist
+				e_dist = s_dist + d
+				prev_chain_dist = e_dist
+
+			if e_dist <= s_dist:
+				e_dist = s_dist + d
+			total_path_distance = maxf(total_path_distance, e_dist)
+			cached_points.append({
+				"p1": p1,
+				"p2": p2,
+				"color": seg.get("color", Color.RED),
+				"len": d,
+				"start_dist": s_dist,
+				"end_dist": e_dist,
+				"hit_type": seg.get("hit_type", "")
+			})
+
+	func _process(delta: float) -> void:
+		if is_traversing:
+			var distance_to_move: float = maxf(10.0, laser_travel_speed * zoom_level) * delta
+			traversed_distance += distance_to_move
+			if traversed_distance >= total_path_distance:
+				traversed_distance = total_path_distance
+				is_traversing = false
+				if simulation_res.get("all_goals_satisfied", false) and not win_triggered:
+					win_triggered = true
+					stage_cleared.emit()
+			if is_inside_tree():
+				queue_redraw()
 
 	func _can_drag_object(obj: LaserObjectData) -> bool:
 		if obj == null or not obj.enabled:
@@ -378,7 +518,7 @@ class PlaytestCanvas extends Control:
 				var old_pos = active_object.grid_pos
 				var new_pos = stage.step_object_orthogonally(active_object, target_cell)
 				if new_pos != old_pos:
-					recompute()
+					recompute(true, true)
 					queue_redraw()
 
 	func _handle_pointer_up() -> void:
@@ -386,10 +526,11 @@ class PlaytestCanvas extends Control:
 			if not is_dragging_active:
 				# Tap / click detected -> Rotate if object is rotatable
 				if _can_rotate_object(active_object):
-					active_object.rotation_deg = (active_object.rotation_deg + 45) % 360
+					var step: int = 90 if active_object.type == LaserObjectData.ObjectType.SPLITTER else 45
+					active_object.rotation_deg = (active_object.rotation_deg + step) % 360
 			active_object = null
 			is_dragging_active = false
-			recompute()
+			recompute(true, true)
 
 	func _gui_input(event: InputEvent) -> void:
 		if stage == null or win_triggered:
@@ -536,7 +677,7 @@ class PlaytestCanvas extends Control:
 
 				LaserObjectData.ObjectType.COLOR_GLASS:
 					var box = Rect2(center - Vector2(rad, rad) * 0.7, Vector2(rad, rad) * 1.4)
-					draw_rect(box, Color(obj.color.r, obj.color.g, obj.color.b, 0.6))
+					draw_rect(box, Color(obj.color.r, obj.color.g, obj.color.b, 0.55), true)
 					draw_rect(box, Color(obj.color.r, obj.color.g, obj.color.b, 1.0), false, 1.5 * zoom_level)
 
 				LaserObjectData.ObjectType.COLOR_WALL:
@@ -570,17 +711,65 @@ class PlaytestCanvas extends Control:
 					draw_rect(Rect2(center - Vector2(rad, rad) * 0.7, Vector2(rad, rad) * 1.4), obj.color)
 					draw_circle(center, rad * 0.4, Color.WHITE)
 
-		# 4. Render Laser Beams & Glow ABOVE Objects
-		var segments: Array = simulation_res.get("segments", [])
-		for seg in segments:
-			var s_cell: Vector2i = seg["start"]
-			var e_cell: Vector2i = seg["end"]
-			var b_color: Color = seg["color"]
-			var p1 = pan_offset + (Vector2(s_cell) + Vector2(0.5, 0.5)) * c_sz
-			var p2 = pan_offset + (Vector2(e_cell) + Vector2(0.5, 0.5)) * c_sz
+		# 4. Render Laser Beams & Glow ABOVE Objects with progressive traversal
+		if not cached_points.is_empty() and total_path_distance > 0.0:
+			if traversed_distance <= 0.0:
+				if is_traversing and not cached_points.is_empty():
+					var first_seg: Dictionary = cached_points[0]
+					_draw_laser_head(first_seg["p1"], first_seg["color"], 1.0)
+				return
 
-			draw_line(p1, p2, Color(b_color.r, b_color.g, b_color.b, 0.35), 7.0 * zoom_level, true)
-			draw_line(p1, p2, Color(b_color.r, b_color.g, b_color.b, 0.85), 3.5 * zoom_level, true)
-			draw_line(p1, p2, Color.WHITE, 1.4 * zoom_level, true)
-			draw_circle(p1, 2.5 * zoom_level, Color.WHITE)
-			draw_circle(p2, 2.5 * zoom_level, Color.WHITE)
+			var active_heads: Array[Dictionary] = []
+
+			for data in cached_points:
+				var p1: Vector2 = data["p1"]
+				var p2: Vector2 = data["p2"]
+				var b_color: Color = data["color"]
+				var s_dist: float = float(data["start_dist"])
+				var e_dist: float = float(data["end_dist"])
+				var seg_len: float = float(data["len"])
+				if seg_len <= 0.0 or e_dist <= s_dist:
+					continue
+
+				if traversed_distance >= e_dist:
+					draw_line(p1, p2, Color(b_color.r, b_color.g, b_color.b, 0.35), 7.0 * zoom_level, true)
+					draw_line(p1, p2, Color(b_color.r, b_color.g, b_color.b, 0.85), 3.5 * zoom_level, true)
+					draw_line(p1, p2, Color.WHITE, 1.4 * zoom_level, true)
+					draw_circle(p1, 2.5 * zoom_level, Color.WHITE)
+					draw_circle(p2, 2.5 * zoom_level, Color.WHITE)
+				elif traversed_distance > s_dist:
+					var t: float = clampf((traversed_distance - s_dist) / (e_dist - s_dist), 0.0, 1.0)
+					var tip: Vector2 = p1.lerp(p2, t)
+					draw_line(p1, tip, Color(b_color.r, b_color.g, b_color.b, 0.35), 7.0 * zoom_level, true)
+					draw_line(p1, tip, Color(b_color.r, b_color.g, b_color.b, 0.85), 3.5 * zoom_level, true)
+					draw_line(p1, tip, Color.WHITE, 1.4 * zoom_level, true)
+					draw_circle(p1, 2.5 * zoom_level, Color.WHITE)
+					active_heads.append({"pos": tip, "color": b_color})
+				else:
+					pass
+
+			for h in active_heads:
+				_draw_laser_head(h["pos"], h["color"])
+
+			if not is_traversing and active_heads.is_empty() and not cached_points.is_empty():
+				for data in cached_points:
+					var h_type: String = str(data.get("hit_type", ""))
+					if h_type in ["goal", "exit_gate", "blocker", "boundary", "color_wall_blocked", "gate_closed", "custom", "switch"]:
+						_draw_laser_head(data["p2"], data["color"], 0.75)
+
+	func _draw_laser_head(pos: Vector2, c: Color, scale_mod: float = 1.0) -> void:
+		var h_sz: float = (cell_size * zoom_level * 0.14) * scale_mod * laser_head_size / 8.0
+		var pulse: float = 1.0 + 0.12 * sin(float(Time.get_ticks_msec()) * 0.012)
+		var eff_sz: float = h_sz * pulse
+
+		# 1. Outer diffuse glow
+		draw_circle(pos, eff_sz * 2.2 * laser_head_glow, Color(c.r, c.g, c.b, 0.32))
+		# 2. Main color head
+		draw_circle(pos, eff_sz * 1.3, Color(c.r, c.g, c.b, 0.85))
+		# 3. Bright white core
+		draw_circle(pos, eff_sz * 0.65, Color.WHITE)
+		# 4. Small cross flare / spark
+		var flare_len: float = eff_sz * 1.8
+		draw_line(pos - Vector2(flare_len, 0), pos + Vector2(flare_len, 0), Color(1.0, 1.0, 1.0, 0.8), 1.5 * zoom_level)
+		draw_line(pos - Vector2(0, flare_len), pos + Vector2(0, flare_len), Color(1.0, 1.0, 1.0, 0.8), 1.5 * zoom_level)
+

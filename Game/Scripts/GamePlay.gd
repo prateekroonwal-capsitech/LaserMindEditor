@@ -109,15 +109,17 @@ func _init_components() -> void:
 	if beam_renderer != null:
 		beam_renderer.z_index = 2
 		beam_renderer.z_as_relative = false
+		if not beam_renderer.animation_completed.is_connected(_on_beam_animation_completed):
+			beam_renderer.animation_completed.connect(_on_beam_animation_completed)
 
 	_input_controller.request_quit_game.connect(func(): get_tree().quit())
-	_input_controller.request_restart_stage.connect(func(): load_stage(current_stage_idx))
-	_input_controller.request_load_stage.connect(func(st_num: int): load_stage(st_num))
+	_input_controller.request_restart_stage.connect(func(): load_stage(current_stage_idx, true))
+	_input_controller.request_load_stage.connect(func(st_num: int): load_stage(st_num, true))
 	_input_controller.request_toggle_visuals.connect(_toggle_playtest_visuals)
 	_input_controller.request_next_stage.connect(_on_next_stage_requested)
 	_input_controller.object_rotated.connect(_on_object_modified)
 	_input_controller.object_dragged.connect(_on_object_modified)
-	_input_controller.drag_ended.connect(func(): recalculate_simulation())
+	_input_controller.drag_ended.connect(func(): recalculate_simulation(true, true))
 
 func _setup_hint_ui() -> void:
 	if hint_dialog == null:
@@ -269,7 +271,20 @@ func load_level_by_number(p_level_num: int, p_stage_num: int = 1) -> bool:
 		push_error("GamePlay: Failed to load valid LaserLevelData for Level %d" % level_number)
 		return false
 
-func load_stage(stage_num: int) -> void:
+enum TraversalState {
+	NORMAL,
+	EXIT_REACHED,
+	TRANSITIONING,
+	ENTERING_STAGE,
+	COMPLETED
+}
+
+var traversal_state: TraversalState = TraversalState.NORMAL
+var carried_laser_color: Color = Color(-1, -1, -1, -1)
+var carried_laser_pos: Vector2i = Vector2i(-999, -999)
+var carried_laser_dir: Vector2i = Vector2i.ZERO
+
+func load_stage(stage_num: int, animate_laser: bool = true) -> void:
 	if level_data == null:
 		push_error("GamePlay: No LaserLevelData assigned!")
 		return
@@ -280,6 +295,11 @@ func load_stage(stage_num: int) -> void:
 	if current_stage == null:
 		push_error("GamePlay: Stage %d not found in level!" % current_stage_idx)
 		return
+
+	if current_stage_idx == 1:
+		carried_laser_color = Color(-1, -1, -1, -1)
+		carried_laser_pos = Vector2i(-999, -999)
+		carried_laser_dir = Vector2i.ZERO
 
 	stage_cleared = false
 	clear_current_stage()
@@ -301,7 +321,7 @@ func load_stage(stage_num: int) -> void:
 		]:
 			_spawn_and_register(obj, 1)
 
-	recalculate_simulation(true)
+	recalculate_simulation(animate_laser)
 	_redraw_grid()
 	_update_hint_button()
 
@@ -326,33 +346,78 @@ func _get_scene_for_object(obj_data: LaserObjectData) -> PackedScene:
 	_spawner.custom_named_scenes = custom_named_scenes
 	return _spawner.get_scene_for_object(obj_data)
 
-func recalculate_simulation(animate_shoot: bool = false) -> void:
+func recalculate_simulation(animate_shoot: bool = true, preserve_progress: bool = false) -> void:
 	if current_stage == null:
 		return
 
-	simulation_res = LaserSimulation.simulate_stage(current_stage)
+	if current_stage_idx == 1:
+		simulation_res = LaserSimulation.simulate_stage(current_stage, true)
+	else:
+		simulation_res = LaserSimulation.simulate_stage(current_stage, true, carried_laser_color, carried_laser_pos, carried_laser_dir)
+
 	var all_cleared = simulation_res.get("all_goals_satisfied", false)
 
-	if all_cleared and not stage_cleared:
-		stage_cleared = true
-		_on_stage_cleared()
+	if not animate_shoot or not is_inside_tree() or beam_renderer == null:
+		if all_cleared and not stage_cleared:
+			_check_and_trigger_stage_clear()
+	else:
+		if not all_cleared:
+			stage_cleared = false
 
-	_redraw_beams(animate_shoot)
+	_redraw_beams(animate_shoot, preserve_progress)
 
 	for id in spawned_nodes:
 		var node = spawned_nodes[id]
 		if is_instance_valid(node) and node.has_method("on_simulation_updated"):
 			node.on_simulation_updated(simulation_res)
 
+func _on_beam_animation_completed() -> void:
+	if simulation_res.get("all_goals_satisfied", false) and not stage_cleared:
+		_check_and_trigger_stage_clear()
+
+func _check_and_trigger_stage_clear() -> void:
+	stage_cleared = true
+	traversal_state = TraversalState.EXIT_REACHED
+	if simulation_res.has("exit_laser_color") and simulation_res["exit_laser_color"].a >= 0.0:
+		carried_laser_color = simulation_res.get("exit_laser_color", Color(1.0, 0.2, 0.2, 1.0))
+		var exit_dir: Vector2i = simulation_res.get("exit_laser_dir", Vector2i.ZERO)
+		carried_laser_dir = exit_dir
+		if level_data != null and current_stage_idx < level_data.get_stage_count():
+			var next_st: LaserStageData = level_data.get_stage(current_stage_idx + 1)
+			if next_st != null:
+				var eg_obj: LaserObjectData = null
+				for obj in next_st.objects:
+					if obj != null and obj.enabled and obj.type == LaserObjectData.ObjectType.GATE:
+						eg_obj = obj
+						break
+				if eg_obj != null:
+					carried_laser_pos = eg_obj.grid_pos
+					var e_dir = eg_obj.get_direction_vector()
+					carried_laser_dir = e_dir if e_dir != Vector2i.ZERO else (exit_dir if exit_dir != Vector2i.ZERO else LaserSimulation._infer_inward_direction(eg_obj.grid_pos, next_st.grid_width, next_st.grid_height))
+				elif next_st.entry_point != Vector2i(-1, -1):
+					carried_laser_pos = next_st.entry_point
+	_on_stage_cleared()
+
 func _on_stage_cleared() -> void:
-	print("🎉 STAGE %d CLEARED! Transitioning to next stage..." % current_stage_idx)
-	_play_clear_flash()
-	var tw = create_tween()
-	tw.tween_interval(0.5)
-	tw.tween_callback(func():
-		if stage_cleared and not _transitioner.is_active():
-			next_stage()
-	)
+	var max_stages: int = level_data.get_stage_count() if level_data != null else 1
+	if current_stage_idx < max_stages:
+		print("🎉 STAGE %d REACHED EXIT! Laser advancing to Stage %d..." % [current_stage_idx, current_stage_idx + 1])
+		_play_clear_flash()
+		var tw = create_tween()
+		tw.tween_interval(0.4)
+		tw.tween_callback(func():
+			if stage_cleared and not _transitioner.is_active():
+				next_stage()
+		)
+	else:
+		traversal_state = TraversalState.COMPLETED
+		print("🏆 FINAL TARGET REACHED! Level %d Complete!" % (level_data.level_id if level_data != null else level_number))
+		_play_clear_flash()
+		var tw = create_tween()
+		tw.tween_interval(0.8)
+		tw.tween_callback(func():
+			next_level()
+		)
 
 func _setup_clear_flash() -> void:
 	if _clear_flash != null:
@@ -391,6 +456,8 @@ func _transition_to_stage(target_stage_idx: int) -> void:
 	if next_st == null:
 		return
 
+	traversal_state = TraversalState.TRANSITIONING
+
 	var target_origin: Vector2
 	if BoardLayoutManager.stage_has_custom_position(next_st):
 		target_origin = next_st.stage_screen_position
@@ -400,6 +467,9 @@ func _transition_to_stage(target_stage_idx: int) -> void:
 
 	var vp_size := get_viewport_rect().size
 	var slide_dir := next_st.stage_transition_direction
+
+	if beam_renderer != null:
+		beam_renderer.clear_beams()
 
 	_transitioner.transition(
 		self,
@@ -411,13 +481,17 @@ func _transition_to_stage(target_stage_idx: int) -> void:
 			grid_origin = new_origin
 			_apply_board_layout()
 			_reposition_spawned_objects()
-			_update_renderers(),
+			_redraw_grid(),
 		func():
-			load_stage(target_stage_idx),
+			# Midway: prepare next stage while offscreen, laser remains hidden at length 0
+			load_stage(target_stage_idx, false),
 		func():
+			# Transition completed: Next stage is in place, laser enters smoothly from Entry Gate
 			_apply_board_layout()
 			_reposition_spawned_objects()
-			_update_renderers()
+			_redraw_grid()
+			traversal_state = TraversalState.ENTERING_STAGE
+			_redraw_beams(true)
 	)
 
 func next_level() -> void:
@@ -461,7 +535,7 @@ func _reposition_spawned_objects() -> void:
 func _on_object_modified(obj: LaserObjectData) -> void:
 	if spawned_nodes.has(obj.id):
 		_spawner.update_node_transform(spawned_nodes[obj.id], obj, grid_origin, cell_size)
-	recalculate_simulation()
+	recalculate_simulation(true, true)
 
 func _toggle_playtest_visuals() -> void:
 	if is_playtest_mode:
@@ -476,9 +550,9 @@ func _redraw_grid() -> void:
 	if grid_renderer != null:
 		grid_renderer.update_grid(current_stage, grid_origin, cell_size)
 
-func _redraw_beams(animate_shoot: bool = false) -> void:
+func _redraw_beams(animate_shoot: bool = true, preserve_progress: bool = false) -> void:
 	if beam_renderer != null:
-		beam_renderer.update_beams(simulation_res.get("segments", []), grid_origin, cell_size, animate_shoot)
+		beam_renderer.update_beams(simulation_res.get("segments", []), grid_origin, cell_size, animate_shoot, preserve_progress)
 
 func grid_to_world(grid_pos: Vector2i) -> Vector2:
 	return BoardLayoutManager.grid_to_world(grid_pos, grid_origin, cell_size)

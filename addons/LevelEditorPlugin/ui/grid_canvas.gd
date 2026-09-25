@@ -416,57 +416,29 @@ func recalculate_simulation() -> void:
 		queue_redraw()
 		return
 
-	if is_side_by_side:
-		var carried_laser_active: bool = false
-		var carried_laser_color: Color = Color(1.0, 0.2, 0.2, 1.0)
-
-		var sorted_stages: Array[LaserStageData] = []
-		for st in stages:
-			if st != null:
-				sorted_stages.append(st)
-		sorted_stages.sort_custom(func(a, b): return a.stage_index < b.stage_index)
-
-		for st in sorted_stages:
-			var has_local_sources: bool = false
-			for obj in st.objects:
-				if obj != null and obj.enabled and obj.type == LaserObjectData.ObjectType.LASER_SOURCE:
-					has_local_sources = true
-					break
-
-			var allow_emission: bool = false
-			var in_color: Color = Color(-1, -1, -1, -1)
-
-			if has_local_sources:
-				allow_emission = true
-			elif carried_laser_active:
-				allow_emission = true
-				in_color = carried_laser_color
+	if current_level != null and not current_level.stages.is_empty():
+		var level_sim := LaserSimulation.simulate_level(current_level)
+		for st_idx in level_sim.get("stages", {}).keys():
+			var s_res: Dictionary = level_sim["stages"][st_idx]
+			simulation_results[st_idx] = s_res
+			if s_res.get("is_exit_satisfied", false):
+				active_stage_transitions[st_idx] = s_res.get("exit_laser_color", Color(1.0, 0.2, 0.2, 1.0))
 			else:
-				allow_emission = false
-
-			var sim = LaserSimulation.simulate_stage(st, allow_emission, in_color)
-			simulation_results[st.stage_index] = sim
-
-			var exit_hit: bool = false
-			var hit_color: Color = Color(1.0, 0.2, 0.2, 1.0)
-			for seg in sim.get("segments", []):
-				if seg.get("hit_type", "") in ["exit_gate", "goal"]:
-					exit_hit = true
-					hit_color = seg.get("color", hit_color)
-					break
-				if st.exit_point != Vector2i(-1, -1) and (seg.get("end", Vector2i(-1, -1)) == st.exit_point or seg.get("hit_pos", Vector2i(-1, -1)) == st.exit_point):
-					exit_hit = true
-					hit_color = seg.get("color", hit_color)
-					break
-
-			if exit_hit:
-				active_stage_transitions[st.stage_index] = hit_color
-
-			carried_laser_active = exit_hit
-			carried_laser_color = hit_color
-	else:
-		if current_stage != null:
-			simulation_results[current_stage.stage_index] = LaserSimulation.simulate_stage(current_stage, true)
+				for seg in s_res.get("segments", []):
+					if seg.get("hit_type", "") == "exit_gate":
+						active_stage_transitions[st_idx] = seg.get("color", Color(1.0, 0.2, 0.2, 1.0))
+						break
+	elif not stages.is_empty():
+		var dummy_lvl := LaserLevelData.new()
+		dummy_lvl.stages = stages
+		var level_sim := LaserSimulation.simulate_level(dummy_lvl)
+		for st_idx in level_sim.get("stages", {}).keys():
+			var s_res: Dictionary = level_sim["stages"][st_idx]
+			simulation_results[st_idx] = s_res
+			if s_res.get("is_exit_satisfied", false):
+				active_stage_transitions[st_idx] = s_res.get("exit_laser_color", Color(1.0, 0.2, 0.2, 1.0))
+	elif current_stage != null:
+		simulation_results[current_stage.stage_index] = LaserSimulation.simulate_stage(current_stage, true)
 
 	if current_stage != null and simulation_results.has(current_stage.stage_index):
 		simulation_result = simulation_results[current_stage.stage_index]

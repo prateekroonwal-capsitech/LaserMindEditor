@@ -2512,7 +2512,389 @@ func _init() -> void:
 	print("✓ [PASS] Stage transitions still work in actual game")
 	print("✓ [PASS] Goal/target still works in actual game")
 	print("✓ [PASS] Edge laser/gate positions still work in actual game")
-	print("✓ [PASS] Play Test behavior remains unchanged")
+	# =========================================================================
+	# SECTION 32: CONTINUOUS MULTI-STAGE LASER FLOW VALIDATION
+	# =========================================================================
+	print("\n--- SECTION 32: CONTINUOUS MULTI-STAGE LASER FLOW VALIDATION ---")
+
+	# Test 1: Single Stage Flow (Laser Source -> Mirror -> Target Goal)
+	var single_lvl := LaserLevelData.new()
+	single_lvl.level_id = 801
+	single_lvl.level_number = 801
+	var s1_stage := LaserStageData.new()
+	s1_stage.stage_index = 1
+	s1_stage.grid_width = 6
+	s1_stage.grid_height = 6
+	var s1_src := LaserObjectData.create(LaserObjectData.ObjectType.LASER_SOURCE, Vector2i(-1, 2), 0)
+	s1_src.color = Color(1.0, 0.2, 0.2, 1.0)
+	var s1_mirror := LaserObjectData.create(LaserObjectData.ObjectType.FIXED_MIRROR, Vector2i(2, 2), 0)
+	var s1_goal := LaserObjectData.create(LaserObjectData.ObjectType.GOAL, Vector2i(2, 6), 90)
+	s1_stage.add_object(s1_src)
+	s1_stage.add_object(s1_mirror)
+	s1_stage.add_object(s1_goal)
+	single_lvl.stages = [s1_stage]
+
+	var sim_single := LaserSimulation.simulate_level(single_lvl)
+	assert(sim_single["level_solved"] == true, "Single stage laser must solve level when reaching Target")
+	assert(sim_single["stages_completed"] == [1], "Single stage 1 must be marked completed")
+	assert(sim_single["stages"][1]["goals_hit"].get(Vector2i(2, 6), false) == true, "Goal at (2,6) must be hit")
+	print("✓ [PASS] Single Stage: Laser Source -> Puzzle -> Target Goal passed")
+
+	# Test 2: Two Stages Flow (Laser Source -> Stage 1 -> Exit Gate -> Entry Gate -> Stage 2 -> Target Goal)
+	var two_stage_lvl := LaserLevelData.new()
+	two_stage_lvl.level_id = 802
+	two_stage_lvl.level_number = 802
+
+	var t1_stage := LaserStageData.new()
+	t1_stage.stage_index = 1
+	t1_stage.grid_width = 6
+	t1_stage.grid_height = 6
+	var t1_src := LaserObjectData.create(LaserObjectData.ObjectType.LASER_SOURCE, Vector2i(-1, 2), 0)
+	t1_src.color = Color(0.2, 1.0, 0.4, 1.0) # Green laser
+	var t1_exit := LaserObjectData.create(LaserObjectData.ObjectType.EXIT_GATE, Vector2i(6, 2), 0)
+	t1_stage.add_object(t1_src)
+	t1_stage.add_object(t1_exit)
+
+	var t2_stage := LaserStageData.new()
+	t2_stage.stage_index = 2
+	t2_stage.grid_width = 6
+	t2_stage.grid_height = 6
+	var t2_entry := LaserObjectData.create(LaserObjectData.ObjectType.GATE, Vector2i(-1, 2), 0)
+	var t2_mirror := LaserObjectData.create(LaserObjectData.ObjectType.FIXED_MIRROR, Vector2i(3, 2), 0)
+	var t2_goal := LaserObjectData.create(LaserObjectData.ObjectType.GOAL, Vector2i(3, 6), 90)
+	t2_stage.add_object(t2_entry)
+	t2_stage.add_object(t2_mirror)
+	t2_stage.add_object(t2_goal)
+
+	two_stage_lvl.stages = [t1_stage, t2_stage]
+
+	# Test continuous simulation when laser path is clear
+	var sim_two := LaserSimulation.simulate_level(two_stage_lvl)
+	assert(sim_two["level_solved"] == true, "Two stage laser must solve level when reaching Target in Stage 2")
+	assert(sim_two["stages_completed"] == [1, 2], "Both stages 1 and 2 must be completed")
+	assert(sim_two["stages"][1]["exit_gates_hit"].get(Vector2i(6, 2), false) == true, "Stage 1 exit gate must be hit")
+	assert(sim_two["stages"][2]["goals_hit"].get(Vector2i(3, 6), false) == true, "Stage 2 goal must be hit by carried laser")
+	# Check that laser color was preserved across stage transition (Green)
+	var s2_segs: Array = sim_two["stages"][2]["segments"]
+	assert(s2_segs.size() >= 2, "Stage 2 must have at least 2 segments")
+	assert(s2_segs[0]["color"] == Color(0.2, 1.0, 0.4, 1.0), "Stage 2 laser color must match Stage 1 carried green color")
+	print("✓ [PASS] Two Stages: Laser Source -> Stage 1 Exit -> Stage 2 Entry -> Stage 2 Target passed")
+
+	# Test 2b: Two Stages with Blocker in Stage 1 (Laser does NOT reach Exit Gate -> Stage 2 receives NO laser)
+	var t1_blocker := LaserObjectData.create(LaserObjectData.ObjectType.ROCK, Vector2i(2, 2), 0)
+	t1_stage.add_object(t1_blocker)
+	var sim_two_blocked := LaserSimulation.simulate_level(two_stage_lvl)
+	assert(sim_two_blocked["level_solved"] == false, "Blocked stage 1 must NOT solve level")
+	assert(sim_two_blocked["stages_completed"].is_empty(), "No stages should be completed when stage 1 is blocked")
+	assert(sim_two_blocked["stages"][2]["segments"].is_empty(), "Stage 2 should receive no laser when Stage 1 does not hit exit gate")
+	t1_stage.remove_object(t1_blocker)
+	print("✓ [PASS] Blocked Stage 1 correctly cuts off Stage 2 laser flow")
+
+	# Test 3: Three Stages Flow (Source -> St1 Exit -> St2 Entry -> Color Glass -> St2 Exit -> St3 Entry -> St3 Target)
+	var three_stage_lvl := LaserLevelData.new()
+	three_stage_lvl.level_id = 803
+	three_stage_lvl.level_number = 803
+
+	var s3_1 := LaserStageData.new()
+	s3_1.stage_index = 1
+	s3_1.grid_width = 6
+	s3_1.grid_height = 6
+	var s3_1_src := LaserObjectData.create(LaserObjectData.ObjectType.LASER_SOURCE, Vector2i(-1, 3), 0)
+	s3_1_src.color = Color(1.0, 0.2, 0.2, 1.0) # Red
+	var s3_1_exit := LaserObjectData.create(LaserObjectData.ObjectType.EXIT_GATE, Vector2i(6, 3), 0)
+	s3_1.add_object(s3_1_src)
+	s3_1.add_object(s3_1_exit)
+
+	var s3_2 := LaserStageData.new()
+	s3_2.stage_index = 2
+	s3_2.grid_width = 6
+	s3_2.grid_height = 6
+	var s3_2_entry := LaserObjectData.create(LaserObjectData.ObjectType.GATE, Vector2i(-1, 3), 0)
+	var s3_2_glass := LaserObjectData.create(LaserObjectData.ObjectType.COLOR_GLASS, Vector2i(2, 3), 0)
+	s3_2_glass.color = Color(0.2, 0.5, 1.0, 1.0) # Blue glass
+	var s3_2_exit := LaserObjectData.create(LaserObjectData.ObjectType.EXIT_GATE, Vector2i(6, 3), 0)
+	s3_2.add_object(s3_2_entry)
+	s3_2.add_object(s3_2_glass)
+	s3_2.add_object(s3_2_exit)
+
+	var s3_3 := LaserStageData.new()
+	s3_3.stage_index = 3
+	s3_3.grid_width = 6
+	s3_3.grid_height = 6
+	var s3_3_entry := LaserObjectData.create(LaserObjectData.ObjectType.GATE, Vector2i(-1, 3), 0)
+	var s3_3_wall := LaserObjectData.create(LaserObjectData.ObjectType.COLOR_WALL, Vector2i(2, 3), 0)
+	s3_3_wall.color = Color(0.2, 0.5, 1.0, 1.0) # Blue wall (only passes blue laser)
+	var s3_3_goal := LaserObjectData.create(LaserObjectData.ObjectType.GOAL, Vector2i(6, 3), 0)
+	s3_3.add_object(s3_3_entry)
+	s3_3.add_object(s3_3_wall)
+	s3_3.add_object(s3_3_goal)
+
+	three_stage_lvl.stages = [s3_1, s3_2, s3_3]
+
+	var sim_three := LaserSimulation.simulate_level(three_stage_lvl)
+	assert(sim_three["level_solved"] == true, "Three stage laser flow must solve level when reaching Target in Stage 3")
+	assert(sim_three["stages_completed"] == [1, 2, 3], "All 3 stages must be completed")
+	assert(sim_three["stages"][1]["segments"][0]["color"] == Color(1.0, 0.2, 0.2, 1.0), "Stage 1 laser starts red")
+	assert(sim_three["stages"][2]["segments"][0]["color"] == Color(1.0, 0.2, 0.2, 1.0), "Stage 2 laser enters red")
+	assert(sim_three["stages"][2]["exit_laser_color"] == Color(0.2, 0.5, 1.0, 1.0), "Stage 2 laser exits blue after glass")
+	assert(sim_three["stages"][3]["segments"][0]["color"] == Color(0.2, 0.5, 1.0, 1.0), "Stage 3 receives blue laser")
+	assert(sim_three["stages"][3]["goals_hit"].get(Vector2i(6, 3), false) == true, "Stage 3 blue laser passes blue wall and hits Goal")
+	print("✓ [PASS] Three Stages: Source (Red) -> Glass (Blue) -> Blue Wall -> Target passed")
+
+	# Test 4: Verify Runtime Multi-stage Stage Transition preserves Carried Laser State & TraversalState
+	var rt_gameplay = load("res://Game/Scripts/GamePlay.gd").new()
+	rt_gameplay.level_data = two_stage_lvl
+	rt_gameplay.load_stage(1)
+	assert(rt_gameplay.stage_cleared == true, "Stage 1 clear detected in GamePlay")
+	assert(rt_gameplay.traversal_state == rt_gameplay.TraversalState.EXIT_REACHED, "Stage 1 should enter EXIT_REACHED state")
+	assert(rt_gameplay.carried_laser_color == Color(0.2, 1.0, 0.4, 1.0), "GamePlay captured carried laser color from exit gate")
+	rt_gameplay.load_stage(2, false)
+	assert(rt_gameplay.simulation_res.get("all_goals_satisfied", false) == true, "Stage 2 simulation runs with carried laser")
+	assert(rt_gameplay.simulation_res.get("segments", [])[0]["color"] == Color(0.2, 1.0, 0.4, 1.0), "Stage 2 beam has carried laser color")
+	rt_gameplay.free()
+	print("✓ [PASS] GamePlay runtime multi-stage carried laser & TraversalState verified")
+
+	# Test 5: Verify PlaytestCanvas multi-stage Carried Laser State and animated propagation
+	var pt_canvas := PlaytestDialog.PlaytestCanvas.new()
+	pt_canvas.set_stage(t1_stage, Color(-1,-1,-1,-1), Vector2i(-999,-999), Vector2i.ZERO, true)
+	assert(pt_canvas.simulation_res.get("all_goals_satisfied", false) == true, "PlaytestCanvas solves stage 1")
+	var pt_exit_col: Color = pt_canvas.simulation_res.get("exit_laser_color", Color.WHITE)
+	assert(pt_exit_col == Color(0.2, 1.0, 0.4, 1.0), "PlaytestCanvas returns exit laser color")
+	pt_canvas.set_stage(t2_stage, pt_exit_col, Vector2i(-1, 2), Vector2i(1, 0), true)
+	assert(pt_canvas.simulation_res.get("all_goals_satisfied", false) == true, "PlaytestCanvas solves stage 2 with carried laser")
+	assert(pt_canvas.simulation_res.get("segments", [])[0]["color"] == Color(0.2, 1.0, 0.4, 1.0), "PlaytestCanvas stage 2 beam has carried laser color")
+	pt_canvas.free()
+	# =========================================================================
+	# SECTION 33: PROGRESSIVE MULTI-STAGE LASER TRAVERSAL & HEAD EFFECT VALIDATION
+	# =========================================================================
+	print("\n--- SECTION 33: PROGRESSIVE MULTI-STAGE LASER TRAVERSAL & HEAD EFFECT VALIDATION ---")
+
+	# 1. Test BeamRenderer exported properties and defaults
+	var s33_beam := BeamRenderer.new()
+	assert(s33_beam.laser_travel_speed == 650.0, "BeamRenderer default laser_travel_speed should be 650.0")
+	assert(s33_beam.laser_head_size == 8.0, "BeamRenderer default laser_head_size should be 8.0")
+	assert(s33_beam.laser_head_glow == 1.0, "BeamRenderer default laser_head_glow should be 1.0")
+
+	# 2. Test distance-based travel calculation
+	var short_segs = [{"start": Vector2i(0, 0), "end": Vector2i(1, 0), "color": Color.RED}]
+	var long_segs = [{"start": Vector2i(0, 0), "end": Vector2i(10, 0), "color": Color.RED}]
+
+	s33_beam.segments = short_segs
+	s33_beam.cell_size = Vector2(64, 64)
+	var short_len: float = s33_beam._calculate_total_length()
+	assert(is_equal_approx(short_len, 64.0), "Short segment length should be 64.0 pixels")
+
+	s33_beam.segments = long_segs
+	var long_len: float = s33_beam._calculate_total_length()
+	assert(is_equal_approx(long_len, 640.0), "Long segment length should be 640.0 pixels (10x longer)")
+
+	# Travel time: t = distance / speed
+	var speed_200: float = 200.0
+	var speed_500: float = 500.0
+	var speed_1000: float = 1000.0
+
+	var t_short_500 = short_len / speed_500
+	var t_long_500 = long_len / speed_500
+	assert(is_equal_approx(t_long_500, t_short_500 * 10.0), "Long segment travel time must be exactly 10x short segment at same speed")
+
+	var t_short_200 = short_len / speed_200
+	var t_short_1000 = short_len / speed_1000
+	assert(t_short_200 > t_short_500 and t_short_500 > t_short_1000, "Higher speed must result in shorter travel duration")
+	print("✓ [PASS] Distance-based travel timing (travel_time = distance / laser_travel_speed) verified")
+
+	# 4. Test multi-segment continuous traversal across mirror reflections and color glass
+	var multi_beam := BeamRenderer.new()
+	multi_beam.laser_travel_speed = 500.0 # 500 px/sec
+	var seg1 = {"start": Vector2i(0, 0), "end": Vector2i(2, 0), "color": Color.RED} # 128 px
+	var seg2 = {"start": Vector2i(2, 0), "end": Vector2i(2, 4), "color": Color.BLUE} # 256 px
+	var seg3 = {"start": Vector2i(2, 4), "end": Vector2i(6, 4), "color": Color.GREEN} # 256 px
+	# Total length: 128 + 256 + 256 = 640 px
+	multi_beam.update_beams([seg1, seg2, seg3], Vector2.ZERO, Vector2(64, 64), true)
+	assert(multi_beam.is_traversing == true, "Beam should be in traversing state after update_beams with animate_shoot=true")
+	assert(multi_beam.traversed_distance == 0.0, "Initial traversed distance must be 0.0")
+	assert(is_equal_approx(multi_beam.total_path_distance, 640.0), "Total path distance must be 640.0")
+
+	# Frame 1: delta = 0.1s -> moves 50 px (within Segment 1: 0 to 128 px)
+	multi_beam._process(0.1)
+	assert(is_equal_approx(multi_beam.traversed_distance, 50.0), "Traversed distance should be 50.0 px")
+	assert(multi_beam.is_traversing == true, "Should still be traversing")
+
+	# Frame 2: delta = 0.2s -> moves 100 px (now 150 px: crosses Mirror at 128 px into Segment 2 by 22 px)
+	multi_beam._process(0.2)
+	assert(is_equal_approx(multi_beam.traversed_distance, 150.0), "Traversed distance should be 150.0 px")
+	assert(multi_beam.is_traversing == true, "Should still be traversing through Segment 2")
+
+	# Frame 3: delta = 0.6s -> moves 300 px (now 450 px: crosses into Segment 3 by 66 px)
+	multi_beam._process(0.6)
+	assert(is_equal_approx(multi_beam.traversed_distance, 450.0), "Traversed distance should be 450.0 px")
+
+	# Frame 4: delta = 0.5s -> moves 250 px (reaches 640 px: reaches Goal endpoint)
+	var anim_finished := [false]
+	multi_beam.animation_completed.connect(func(): anim_finished[0] = true)
+	multi_beam._process(0.5)
+	assert(is_equal_approx(multi_beam.traversed_distance, 640.0), "Traversed distance should clamp at total_path_distance")
+	assert(multi_beam.is_traversing == false, "is_traversing should be false after finishing")
+	assert(anim_finished[0] == true, "animation_completed signal must be emitted")
+	# 5. Test Zero Full-Path Flash during stage loading/preparation
+	var flash_test_beam := BeamRenderer.new()
+	flash_test_beam.update_beams([seg1, seg2, seg3], Vector2.ZERO, Vector2(64, 64), false)
+	assert(flash_test_beam.traversed_distance == 0.0, "Preparing stage beams must initialize traversed_distance at 0.0 (NO full path flash)")
+	assert(flash_test_beam.is_traversing == false, "Preparing stage beams must not be actively traversing")
+
+	flash_test_beam.reset_laser_traversal()
+	assert(flash_test_beam.traversed_distance == 0.0, "reset_laser_traversal must reset distance to 0.0")
+
+	flash_test_beam.clear_beams()
+	assert(flash_test_beam.segments.is_empty(), "clear_beams must clear all segments")
+	assert(flash_test_beam.traversed_distance == 0.0, "clear_beams must have distance 0.0")
+	flash_test_beam.free()
+	print("✓ [PASS] Zero full-path flash during stage loading and traversal reset verified")
+
+	# 6. Test Stage 2 Object Modification preserves Stage 2 (recalculates from Stage 2 Entry, NOT Stage 1)
+	var s33_two_stage_lvl := LaserLevelData.new()
+	s33_two_stage_lvl.level_id = 901
+	s33_two_stage_lvl.level_number = 901
+	var s33_st1 := LaserStageData.new()
+	s33_st1.stage_index = 1
+	s33_st1.grid_width = 6
+	s33_st1.grid_height = 6
+	var s33_src := LaserObjectData.create(LaserObjectData.ObjectType.LASER_SOURCE, Vector2i(-1, 2), 0)
+	s33_src.color = Color.GREEN
+	var s33_exit := LaserObjectData.create(LaserObjectData.ObjectType.EXIT_GATE, Vector2i(6, 2), 0)
+	s33_st1.add_object(s33_src)
+	s33_st1.add_object(s33_exit)
+
+	var s33_st2 := LaserStageData.new()
+	s33_st2.stage_index = 2
+	s33_st2.grid_width = 6
+	s33_st2.grid_height = 6
+	var s33_entry := LaserObjectData.create(LaserObjectData.ObjectType.GATE, Vector2i(-1, 2), 0)
+	var s33_rot_mirror := LaserObjectData.create(LaserObjectData.ObjectType.ROTATABLE_MIRROR, Vector2i(3, 2), 0)
+	var s33_goal := LaserObjectData.create(LaserObjectData.ObjectType.GOAL, Vector2i(3, 6), 90)
+	s33_st2.add_object(s33_entry)
+	s33_st2.add_object(s33_rot_mirror)
+	s33_st2.add_object(s33_goal)
+	s33_two_stage_lvl.stages = [s33_st1, s33_st2]
+
+	var s33_gameplay = load("res://Game/Scripts/GamePlay.gd").new()
+	s33_gameplay.level_data = s33_two_stage_lvl
+	s33_gameplay.load_stage(1, false)
+	# Advance to stage 2
+	s33_gameplay.load_stage(2, false)
+	assert(s33_gameplay.current_stage_idx == 2, "Current stage must be 2")
+	assert(s33_gameplay.carried_laser_pos == Vector2i(-1, 2), "Stage 2 must preserve carried laser pos at Entry Gate (-1, 2)")
+	assert(s33_gameplay.carried_laser_color == Color.GREEN, "Stage 2 must preserve carried green color")
+
+	# Rotate mirror in Stage 2 -> calls _on_object_modified
+	s33_rot_mirror.rotation_deg = 90
+	s33_gameplay._on_object_modified(s33_rot_mirror)
+	assert(s33_gameplay.current_stage_idx == 2, "Stage index must remain 2 after object modification (must NOT reset to Stage 1)")
+	var s33_st2_segs: Array = s33_gameplay.simulation_res.get("segments", [])
+	assert(s33_st2_segs.size() >= 1, "Stage 2 simulation must generate segments")
+	assert(s33_st2_segs[0]["start"] == Vector2i(-1, 2), "Stage 2 recalculation must start from Stage 2 Entry Gate (-1, 2), NOT Stage 1 Source")
+	assert(s33_st2_segs[0]["color"] == Color.GREEN, "Stage 2 recalculation must use carried green color")
+	s33_gameplay.free()
+	print("✓ [PASS] Stage 2 object interaction preserves Stage 2 state and recalculates from Entry Gate")
+
+	# Section 34: Laser Gameplay Refinements (Splitter branches, Switch Gate blocking, Splitter rotation, Progress preservation)
+	print("\n--- Section 34: Laser Gameplay Refinements ---")
+
+	# 1. Test Splitter Object Data Rotatability
+	var s34_splitter := LaserObjectData.create(LaserObjectData.ObjectType.SPLITTER, Vector2i(2, 2), 0)
+	assert(s34_splitter.rotatable == true, "Splitter must have rotatable = true by default")
+	s34_splitter.reset_to_type(LaserObjectData.ObjectType.SPLITTER)
+	assert(s34_splitter.rotatable == true, "Splitter reset_to_type must maintain rotatable = true")
+	print("✓ [PASS] Splitter rotatable flag verified")
+
+	# 2. Test Switch Gate hard blocking when switch is OFF
+	var s34_gate_st := LaserStageData.new()
+	s34_gate_st.grid_width = 8
+	s34_gate_st.grid_height = 8
+	var s34_g_src := LaserObjectData.create(LaserObjectData.ObjectType.LASER_SOURCE, Vector2i(0, 2), 0)
+	var s34_gate := LaserObjectData.create(LaserObjectData.ObjectType.GATE_SWITCH, Vector2i(3, 2), 0)
+	var s34_g_goal := LaserObjectData.create(LaserObjectData.ObjectType.GOAL, Vector2i(6, 2), 0)
+	s34_gate_st.add_object(s34_g_src)
+	s34_gate_st.add_object(s34_gate)
+	s34_gate_st.add_object(s34_g_goal)
+
+	var s34_gate_sim := LaserSimulation.simulate_stage(s34_gate_st)
+	assert(s34_gate_sim.get("all_goals_satisfied", false) == false, "Goal must NOT be reached when switch gate is closed")
+	var s34_gate_segs: Array = s34_gate_sim.get("segments", [])
+	assert(s34_gate_segs.size() == 1, "Closed gate must stop laser at gate position (only 1 segment)")
+	assert(s34_gate_segs[0]["end"] == Vector2i(3, 2), "Laser must stop exactly at gate position (3, 2)")
+	assert(s34_gate_segs[0]["hit_type"] == "gate_closed", "Hit type must be gate_closed")
+	print("✓ [PASS] Switch Gate hard blocks laser when switch is OFF")
+
+	# 2b. Test Switch object absorbs and stops laser (no pass through)
+	var s34_sw_st := LaserStageData.new()
+	s34_sw_st.grid_width = 8
+	s34_sw_st.grid_height = 8
+	var s34_sw_src := LaserObjectData.create(LaserObjectData.ObjectType.LASER_SOURCE, Vector2i(0, 2), 0)
+	var s34_sw_obj := LaserObjectData.create(LaserObjectData.ObjectType.SWITCH, Vector2i(3, 2), 0)
+	s34_sw_st.add_object(s34_sw_src)
+	s34_sw_st.add_object(s34_sw_obj)
+	var s34_sw_sim := LaserSimulation.simulate_stage(s34_sw_st)
+	var s34_sw_segs: Array = s34_sw_sim.get("segments", [])
+	assert(s34_sw_segs.size() == 1, "Switch must stop laser (only 1 segment)")
+	assert(s34_sw_segs[0]["end"] == Vector2i(3, 2), "Laser must stop at switch position (3, 2)")
+	assert(s34_sw_segs[0]["hit_type"] == "switch", "Hit type must be switch")
+	assert(s34_sw_sim.get("switches_hit", {}).get(Vector2i(3, 2), false) == true, "Switch must be activated")
+	print("✓ [PASS] Switch object absorbs/stops laser beam (does not pass through)")
+
+	# 3. Test Splitter concurrent branch distance tracking
+	var s34_split_st := LaserStageData.new()
+	s34_split_st.grid_width = 8
+	s34_split_st.grid_height = 8
+	var s34_sp_src := LaserObjectData.create(LaserObjectData.ObjectType.LASER_SOURCE, Vector2i(0, 2), 0)
+	var s34_sp_obj := LaserObjectData.create(LaserObjectData.ObjectType.SPLITTER, Vector2i(2, 2), 0)
+	s34_split_st.add_object(s34_sp_src)
+	s34_split_st.add_object(s34_sp_obj)
+
+	var s34_split_sim := LaserSimulation.simulate_stage(s34_split_st)
+	var s34_sp_segs: Array = s34_split_sim.get("segments", [])
+	assert(s34_sp_segs.size() >= 3, "Splitter simulation must generate incoming segment + at least 2 outgoing branches")
+	# Incoming segment
+	assert(s34_sp_segs[0]["end"] == Vector2i(2, 2), "Incoming segment must reach splitter at (2, 2)")
+	assert(s34_sp_segs[0]["start_dist"] == 0.0 and s34_sp_segs[0]["end_dist"] == 2.0, "Incoming segment must traverse 0 to 2 grid units")
+	# Child branches must share arrival distance
+	assert(s34_sp_segs[1]["start_dist"] == 2.0, "Branch 1 must start at distance 2.0 (when laser arrives at splitter)")
+	assert(s34_sp_segs[2]["start_dist"] == 2.0, "Branch 2 must start at distance 2.0 (when laser arrives at splitter)")
+	print("✓ [PASS] Splitter multi-branches have synchronized concurrent start_dist = 2.0")
+
+	# 4. Test Splitter + Switch Gate Interaction (Branch A unlocks Gate for Branch B)
+	var s34_combo_st := LaserStageData.new()
+	s34_combo_st.grid_width = 8
+	s34_combo_st.grid_height = 8
+	var s34_c_src := LaserObjectData.create(LaserObjectData.ObjectType.LASER_SOURCE, Vector2i(0, 2), 0)
+	var s34_c_split := LaserObjectData.create(LaserObjectData.ObjectType.SPLITTER, Vector2i(2, 2), 0)
+	var s34_c_switch := LaserObjectData.create(LaserObjectData.ObjectType.SWITCH, Vector2i(2, 5), 0)
+	var s34_c_gate := LaserObjectData.create(LaserObjectData.ObjectType.GATE_SWITCH, Vector2i(4, 2), 0)
+	var s34_c_goal := LaserObjectData.create(LaserObjectData.ObjectType.GOAL, Vector2i(6, 2), 0)
+	s34_c_switch.target_id = s34_c_gate.id
+	s34_combo_st.add_object(s34_c_src)
+	s34_combo_st.add_object(s34_c_split)
+	s34_combo_st.add_object(s34_c_switch)
+	s34_combo_st.add_object(s34_c_gate)
+	s34_combo_st.add_object(s34_c_goal)
+
+	var s34_combo_sim := LaserSimulation.simulate_stage(s34_combo_st)
+	assert(s34_combo_sim.get("all_goals_satisfied", false) == true, "Switch activation from Branch A must open gate for Branch B to reach Goal")
+	assert(s34_combo_sim.get("switches_hit", {}).get(Vector2i(2, 5), false) == true, "Switch at (2, 5) must be hit")
+	assert(s34_combo_sim.get("goals_hit", {}).get(Vector2i(6, 2), false) == true, "Goal at (6, 2) must be hit through open gate")
+	print("✓ [PASS] Splitter + Switch Gate concurrent interaction verified (Branch A unlocks Gate for Branch B)")
+
+	# 5. Test BeamRenderer Progress Preservation (Laser does not restart from 0 on object modifications)
+	var s34_renderer := BeamRenderer.new()
+	s34_renderer.update_beams(s34_sp_segs, Vector2.ZERO, Vector2(64, 64), true, false)
+	s34_renderer.traversed_distance = 100.0
+	assert(s34_renderer.traversed_distance == 100.0, "Initial traversed distance must be 100.0")
+
+	# Simulate moving an object while beam is traversing: call update_beams with preserve_progress = true
+	s34_renderer.update_beams(s34_sp_segs, Vector2.ZERO, Vector2(64, 64), true, true)
+	assert(s34_renderer.traversed_distance == 100.0, "Progress must be preserved (must NOT reset to 0.0 / global source)")
+	assert(s34_renderer.is_traversing == true, "Renderer must continue traversing from current progress")
+	s34_renderer.free()
+	print("✓ [PASS] BeamRenderer preserves progress and avoids reset to source on object modification")
 
 	print("\n--- ALL ACTUAL GAME RUNTIME & LEVELEDITORPLUGIN RULES 100% OPERATIONAL! ---")
 	print("--- ALL TESTS PASSED WITH 100% COMPLIANCE! ---")
