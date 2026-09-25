@@ -20,6 +20,7 @@
 [ext_resource type="Script" uid="uid://bwymsxudjkjjv" path="res://Game/Scripts/beam_renderer.gd" id="20_beam"]
 
 [node name="GamePlay" type="Node2D" unique_id=940088927]
+level_number = 1
 script = ExtResource("1_gp")
 laser_scene = ExtResource("3_laser")
 fixed_mirror_scene = ExtResource("4_fmir")
@@ -42,11 +43,13 @@ texture = ExtResource("17_bg")
 centered = false
 
 [node name="GridLayer" type="Node2D" parent="." unique_id=1978019652]
+level_number = 1
 script = ExtResource("19_grid")
 
 [node name="BeamLayer" type="Node2D" parent="." unique_id=369268362]
 z_index = 2
 z_as_relative = false
+level_number = 1
 script = ExtResource("20_beam")
 
 [node name="LevelObjects" type="Node2D" parent="." unique_id=767403627]

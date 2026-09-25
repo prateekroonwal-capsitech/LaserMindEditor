@@ -1400,7 +1400,7 @@ func _init() -> void:
 	print("\n--- SECTION 26: Gameplay Scene Hint UI & Path Rendering Validation ---")
 
 	var s26_hint_dialog_script = load("res://Game/Scripts/hint_dialog.gd")
-	var s26_layout_helper = load("res://addons/LevelEditorPlugin/core/board_layout_helper.gd")
+	var s26_layout_helper = load("res://addons/LevelEditorPlugin/core/board/board_layout_helper.gd")
 
 	# 1. Test HintDialog Component
 	var s26_dialog = s26_hint_dialog_script.new()

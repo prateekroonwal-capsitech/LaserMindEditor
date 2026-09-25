@@ -1,8 +1,8 @@
 [gd_resource type="Resource" script_class="LaserLevelData" format=3 uid="uid://b5y4qdk4fjftl"]
 
-[ext_resource type="Script" uid="uid://f4kq1832bhoq" path="res://addons/LevelEditorPlugin/data/laser_level_data.gd" id="1_qdb8q"]
-[ext_resource type="Script" uid="uid://dagkqrbmyueu7" path="res://addons/LevelEditorPlugin/data/laser_stage_data.gd" id="2_lqunb"]
-[ext_resource type="Script" uid="uid://c52lyaofm5ytm" path="res://addons/LevelEditorPlugin/data/laser_object_data.gd" id="3_rvopn"]
+[ext_resource type="Script" path="res://addons/LevelEditorPlugin/core/data/laser_level_data.gd" id="1_qdb8q"]
+[ext_resource type="Script" path="res://addons/LevelEditorPlugin/core/data/laser_stage_data.gd" id="2_lqunb"]
+[ext_resource type="Script" path="res://addons/LevelEditorPlugin/core/data/laser_object_data.gd" id="3_rvopn"]
 
 [sub_resource type="Resource" id="Resource_akk5v"]
 script = ExtResource("3_rvopn")
