@@ -1,6 +1,6 @@
 extends SceneTree
 
-const StageTransitionController = preload("res://Game/Scripts/stage_transition_controller.gd")
+const StageTransitionController = preload("res://game/scripts/controllers/stage_transition_controller.gd")
 
 func _init() -> void:
 
@@ -268,8 +268,8 @@ func _init() -> void:
 
 	editor.object_palette._on_add_custom_element_pressed()
 	assert(editor.object_palette.custom_elements.size() == 1, "Adding custom element should result in 1 element")
-	editor.object_palette._on_custom_scene_dropped("res://Game/Objects/Scenes/Custom.tscn")
-	assert(editor.object_palette.custom_elements[0]["scene_path"] == "res://Game/Objects/Scenes/Custom.tscn", "Palette scene drop failed")
+	editor.object_palette._on_custom_scene_dropped("res://game/scenes/gameplay/Custom.tscn")
+	assert(editor.object_palette.custom_elements[0]["scene_path"] == "res://game/scenes/gameplay/Custom.tscn", "Palette scene drop failed")
 	editor.object_palette._on_custom_name_edited("Portal")
 	assert(editor.object_palette.custom_elements[0]["name"] == "Portal", "Palette custom element name edit failed")
 
@@ -277,10 +277,10 @@ func _init() -> void:
 	assert(editor.object_palette.custom_elements.is_empty(), "Deleting custom element should be able to empty list")
 	assert(editor.object_palette.remove_custom_btn.disabled == true, "Remove button should be disabled when empty")
 
-	if ResourceLoader.exists("res://Game/Scripts/GamePlay.gd") and ResourceLoader.exists("res://Game/Objects/Scenes/Custom.tscn"):
-		var GPClass = load("res://Game/Scripts/GamePlay.gd")
+	if ResourceLoader.exists("res://game/scripts/features/GamePlay.gd") and ResourceLoader.exists("res://game/scenes/gameplay/Custom.tscn"):
+		var GPClass = load("res://game/scripts/features/GamePlay.gd")
 		var gp = GPClass.new()
-		var dummy_packed: PackedScene = load("res://Game/Objects/Scenes/Custom.tscn")
+		var dummy_packed: PackedScene = load("res://game/scenes/gameplay/Custom.tscn")
 		gp.custom_named_scenes["Custom 2"] = dummy_packed
 
 		var cust_obj2 := LaserObjectData.create(LaserObjectData.ObjectType.CUSTOM, Vector2i(1, 2), 0)
@@ -369,7 +369,7 @@ func _init() -> void:
 	# 1. Verification: No Automatic Tile Fill on Grid Creation
 	assert(tile_st.custom_tiles.is_empty(), "Newly created grid must NOT have any auto-filled visual tiles")
 	assert(tile_st.get_custom_tiles_count() == 0, "Custom tiles count must be 0")
-	var BoardVisualGen = preload("res://Game/Scripts/board_visual_generator.gd")
+	var BoardVisualGen = preload("res://game/scripts/features/board_visual_generator.gd")
 	var empty_vis := BoardVisualGen.get_cell_visual(tile_st, Vector2i(0, 0))
 	assert(empty_vis.type == -1, "Unpainted cell must return type -1 (empty)")
 	assert(empty_vis.texture == null, "Unpainted cell must have null texture")
@@ -726,8 +726,8 @@ func _init() -> void:
 
 	print("✓ All 15 requirements from Section 11 verified and passed with flying colors!")
 
-	if ResourceLoader.exists("res://Game/GamePlay.tscn"):
-		var gp_scene: PackedScene = load("res://Game/GamePlay.tscn")
+	if ResourceLoader.exists("res://game/scenes/gameplay/GamePlay.tscn"):
+		var gp_scene: PackedScene = load("res://game/scenes/gameplay/GamePlay.tscn")
 		assert(gp_scene != null, "GamePlay.tscn should load")
 		var gp_instance: Node2D = gp_scene.instantiate()
 		assert(gp_instance != null, "GamePlay.tscn should instantiate")
@@ -1195,9 +1195,9 @@ func _init() -> void:
 
 	# 2. Asset Resolution for Level 1
 	var lvl1_border_asset := BoardVisualGen.resolve_asset_in_library(s24_st1, "border", "border_1")
-	assert(lvl1_border_asset == "res://Game/Assets/Board/ChatGPT2.png", "border_1 must authoritatively resolve to ChatGPT2.png")
+	assert(lvl1_border_asset == "res://game/assets/sprites/backgrounds/ChatGPT2.png", "border_1 must authoritatively resolve to ChatGPT2.png")
 	var lvl1_corner_asset := BoardVisualGen.resolve_asset_in_library(s24_st1, "corner", "corner_1")
-	assert(lvl1_corner_asset == "res://Game/Assets/Board/ChatGPT1.png", "corner_1 must authoritatively resolve to ChatGPT1.png")
+	assert(lvl1_corner_asset == "res://game/assets/sprites/backgrounds/ChatGPT1.png", "corner_1 must authoritatively resolve to ChatGPT1.png")
 	print("✓ Library asset resolution for Level 1 ChatGPT border and corner assets verified.")
 
 	# 3. Test Editor vs Gameplay relative transforms across responsive cell sizes
@@ -1401,7 +1401,7 @@ func _init() -> void:
 	# =========================================================================
 	print("\n--- SECTION 26: Gameplay Scene Hint UI & Path Rendering Validation ---")
 
-	var s26_hint_dialog_script = load("res://Game/Scripts/hint_dialog.gd")
+	var s26_hint_dialog_script = load("res://game/scripts/features/hint_dialog.gd")
 	var s26_layout_helper = load("res://addons/LevelEditorPlugin/core/board/board_layout_helper.gd")
 
 	# 1. Test HintDialog Component
@@ -1471,7 +1471,7 @@ func _init() -> void:
 	print("✓ Missing / disabled hint data graceful handling verified.")
 
 	# 5. Test GamePlay Scene Integration & Hint Button
-	var s26_gp_scene := load("res://Game/GamePlay.tscn")
+	var s26_gp_scene := load("res://game/scenes/gameplay/GamePlay.tscn")
 	assert(s26_gp_scene != null, "GamePlay.tscn must be loadable")
 	var s26_gp = s26_gp_scene.instantiate()
 	assert(s26_gp != null, "GamePlay instance creation")
@@ -2446,7 +2446,7 @@ func _init() -> void:
 	beam_inst.free()
 
 	# 4. Test Invisibility of Editor/Design-time elements in GamePlay Runtime
-	var gameplay_scene = load("res://Game/GamePlay.tscn")
+	var gameplay_scene = load("res://game/scenes/gameplay/GamePlay.tscn")
 	assert(gameplay_scene != null, "GamePlay.tscn must load successfully")
 	var gameplay_inst: GamePlay = gameplay_scene.instantiate()
 	var test_invis_lvl := LaserLevelData.new()
@@ -2644,7 +2644,7 @@ func _init() -> void:
 	print("✓ [PASS] Three Stages: Source (Red) -> Glass (Blue) -> Blue Wall -> Target passed")
 
 	# Test 4: Verify Runtime Multi-stage Stage Transition preserves Carried Laser State & TraversalState
-	var rt_gameplay = load("res://Game/Scripts/GamePlay.gd").new()
+	var rt_gameplay = load("res://game/scripts/features/GamePlay.gd").new()
 	rt_gameplay.level_data = two_stage_lvl
 	rt_gameplay.load_stage(1)
 	assert(rt_gameplay.stage_cleared == true, "Stage 1 clear detected in GamePlay")
@@ -2778,7 +2778,7 @@ func _init() -> void:
 	s33_st2.add_object(s33_goal)
 	s33_two_stage_lvl.stages = [s33_st1, s33_st2]
 
-	var s33_gameplay = load("res://Game/Scripts/GamePlay.gd").new()
+	var s33_gameplay = load("res://game/scripts/features/GamePlay.gd").new()
 	s33_gameplay.level_data = s33_two_stage_lvl
 	s33_gameplay.load_stage(1, false)
 	# Advance to stage 2
@@ -2944,7 +2944,7 @@ func _init() -> void:
 
 	s35_lvl.stages = [s35_st1, s35_st2, s35_st3]
 
-	var s35_gameplay = load("res://Game/Scripts/GamePlay.gd").new()
+	var s35_gameplay = load("res://game/scripts/features/GamePlay.gd").new()
 	s35_gameplay.level_data = s35_lvl
 	s35_gameplay._build_stage_world()
 	s35_gameplay._spawn_all_world_objects()

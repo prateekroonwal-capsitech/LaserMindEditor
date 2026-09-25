@@ -2,13 +2,13 @@
 extends RefCounted
 class_name LevelMigration
 
-const DEFAULT_LEGACY_DIR: String = "res://Game/Data/Levels/"
-const DEFAULT_LASER_MIND_DIR: String = "res://Game/Data/LaserMindLevels/"
+const DEFAULT_LEGACY_DIR: String = "res://game/data/Levels/"
+const DEFAULT_LASER_MIND_DIR: String = "res://game/data/LaserMindLevels/"
 const LEGACY_DIR: String = DEFAULT_LEGACY_DIR
 const LASER_MIND_DIR: String = DEFAULT_LASER_MIND_DIR
-const LASER_TRES_PATTERN: String = "res://Game/Data/LaserMindLevels/Level_%03d.tres"
-const LASER_JSON_PATTERN: String = "res://Game/Data/LaserMindLevels/Level_%03d.json"
-const LEGACY_PATTERN: String = "res://Game/Data/Levels/Level_%03d.tres"
+const LASER_TRES_PATTERN: String = "res://game/data/LaserMindLevels/Level_%03d.tres"
+const LASER_JSON_PATTERN: String = "res://game/data/LaserMindLevels/Level_%03d.json"
+const LEGACY_PATTERN: String = "res://game/data/Levels/Level_%03d.tres"
 
 static func get_levels_dir() -> String:
 	if ProjectSettings.has_setting("laser_editor/paths/levels_directory"):
@@ -19,7 +19,7 @@ static func get_levels_dir() -> String:
 			return custom_dir
 	if DirAccess.dir_exists_absolute(DEFAULT_LASER_MIND_DIR):
 		return DEFAULT_LASER_MIND_DIR
-	return "res://Levels/"
+	return DEFAULT_LASER_MIND_DIR
 
 static func get_tres_pattern() -> String:
 	if DirAccess.dir_exists_absolute(DEFAULT_LASER_MIND_DIR) and not ProjectSettings.has_setting("laser_editor/paths/levels_directory"):

@@ -1,0 +1,55 @@
+[gd_scene format=3 uid="uid://b8dsiuc85i6p0"]
+
+[ext_resource type="Script" uid="uid://cd3wmaerpmm8w" path="res://game/scripts/features/GamePlay.gd" id="1_gp"]
+[ext_resource type="PackedScene" path="res://game/scenes/gameplay/Laser.tscn" id="3_laser"]
+[ext_resource type="PackedScene" uid="uid://bt821fct8u25e" path="res://game/scenes/gameplay/FixedMirror.tscn" id="4_fmir"]
+[ext_resource type="PackedScene" path="res://game/scenes/gameplay/MovableMirror.tscn" id="5_mmir"]
+[ext_resource type="PackedScene" path="res://game/scenes/gameplay/RotatableMirror.tscn" id="6_rmir"]
+[ext_resource type="PackedScene" path="res://game/scenes/gameplay/Rock.tscn" id="8_rock"]
+[ext_resource type="PackedScene" path="res://game/scenes/gameplay/Ice.tscn" id="9_ice"]
+[ext_resource type="PackedScene" path="res://game/scenes/gameplay/Splitter.tscn" id="10_split"]
+[ext_resource type="PackedScene" path="res://game/scenes/gameplay/ColorGlass.tscn" id="11_cglass"]
+[ext_resource type="PackedScene" path="res://game/scenes/gameplay/ColorWall.tscn" id="12_cwall"]
+[ext_resource type="PackedScene" path="res://game/scenes/gameplay/EntryGate.tscn" id="13_egate"]
+[ext_resource type="PackedScene" path="res://game/scenes/gameplay/ExitGate.tscn" id="13_xgate"]
+[ext_resource type="PackedScene" path="res://game/scenes/gameplay/Switch.tscn" id="14_switch"]
+[ext_resource type="PackedScene" path="res://game/scenes/gameplay/GateWithSwitch.tscn" id="15_gwitch"]
+[ext_resource type="PackedScene" path="res://game/scenes/gameplay/MovableArea.tscn" id="16_marea"]
+[ext_resource type="Texture2D" uid="uid://dcghic8hgfto6" path="res://game/assets/sprites/backgrounds/background.png" id="17_bg"]
+[ext_resource type="Script" uid="uid://bayop8fv0a0ix" path="res://game/scripts/features/grid_renderer.gd" id="19_grid"]
+[ext_resource type="Script" uid="uid://bwymsxudjkjjv" path="res://game/scripts/features/beam_renderer.gd" id="20_beam"]
+
+[node name="GamePlay" type="Node2D" unique_id=940088927]
+level_number = 1
+script = ExtResource("1_gp")
+laser_scene = ExtResource("3_laser")
+fixed_mirror_scene = ExtResource("4_fmir")
+movable_mirror_scene = ExtResource("5_mmir")
+rotatable_mirror_scene = ExtResource("6_rmir")
+movable_area_scene = ExtResource("16_marea")
+rock_scene = ExtResource("8_rock")
+ice_scene = ExtResource("9_ice")
+splitter_scene = ExtResource("10_split")
+color_glass_scene = ExtResource("11_cglass")
+color_wall_scene = ExtResource("12_cwall")
+entry_gate_scene = ExtResource("13_egate")
+exit_gate_scene = ExtResource("13_xgate")
+switch_scene = ExtResource("14_switch")
+gate_switch_scene = ExtResource("15_gwitch")
+
+[node name="Background" type="Sprite2D" parent="." unique_id=1681138924]
+scale = Vector2(1.0117396, 1)
+texture = ExtResource("17_bg")
+centered = false
+
+[node name="GridLayer" type="Node2D" parent="." unique_id=1978019652]
+level_number = 1
+script = ExtResource("19_grid")
+
+[node name="BeamLayer" type="Node2D" parent="." unique_id=369268362]
+z_index = 2
+z_as_relative = false
+level_number = 1
+script = ExtResource("20_beam")
+
+[node name="LevelObjects" type="Node2D" parent="." unique_id=767403627]

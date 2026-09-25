@@ -879,8 +879,8 @@ func _get_playtest_scene_path() -> String:
 		var p: String = ProjectSettings.get_setting("laser_editor/paths/gameplay_scene_path")
 		if ResourceLoader.exists(p) or FileAccess.file_exists(ProjectSettings.globalize_path(p)):
 			return p
-	if ResourceLoader.exists("res://Game/GamePlay.tscn") or FileAccess.file_exists(ProjectSettings.globalize_path("res://Game/GamePlay.tscn")):
-		return "res://Game/GamePlay.tscn"
+	if ResourceLoader.exists("res://game/scenes/gameplay/GamePlay.tscn") or FileAccess.file_exists(ProjectSettings.globalize_path("res://game/scenes/gameplay/GamePlay.tscn")):
+		return "res://game/scenes/gameplay/GamePlay.tscn"
 	return ""
 
 func _sync_gameplay_tscn_level_number(level_id: int) -> void:

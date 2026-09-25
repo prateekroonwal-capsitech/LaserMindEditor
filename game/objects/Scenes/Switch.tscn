@@ -1,0 +1,11 @@
+[gd_scene format=3 uid="uid://bh3m8o8ue1c0b"]
+
+[ext_resource type="Script" path="res://Game/Objects/Scripts/Switch.gd" id="1_switch"]
+[ext_resource type="Texture2D" path="res://Game/Assets/Sprites/Switch.svg" id="2_tex"]
+
+[node name="Switch" type="Node2D" unique_id=772939782]
+script = ExtResource("1_switch")
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=1109505488]
+scale = Vector2(0.5, 0.5)
+texture = ExtResource("2_tex")

@@ -1,0 +1,11 @@
+[gd_scene format=3 uid="uid://b80kacl8ivms5"]
+
+[ext_resource type="Script" path="res://Game/Objects/Scripts/EntryGate.gd" id="1_egate"]
+[ext_resource type="Texture2D" path="res://Game/Assets/Sprites/EntryGate.svg" id="2_tex"]
+
+[node name="EntryGate" type="Node2D" unique_id=701333922]
+script = ExtResource("1_egate")
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=167754146]
+scale = Vector2(0.5, 0.5)
+texture = ExtResource("2_tex")

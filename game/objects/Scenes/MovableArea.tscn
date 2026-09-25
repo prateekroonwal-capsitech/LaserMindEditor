@@ -1,0 +1,11 @@
+[gd_scene format=3 uid="uid://cjxdeb4jxc50b"]
+
+[ext_resource type="Script" path="res://Game/Objects/Scripts/MovableArea.gd" id="1_marea"]
+[ext_resource type="Texture2D" path="res://Game/Assets/Sprites/MovableArea.svg" id="2_tex"]
+
+[node name="MovableArea" type="Node2D" unique_id=1861204720]
+script = ExtResource("1_marea")
+
+[node name="Sprite2D" type="Sprite2D" parent="." unique_id=1181456812]
+scale = Vector2(0.5, 0.5)
+texture = ExtResource("2_tex")

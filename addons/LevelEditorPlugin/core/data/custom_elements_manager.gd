@@ -1,7 +1,7 @@
 @tool
 class_name CustomElementsManager
 
-const DEFAULT_SAVE_PATH: String = "res://Game/Data/custom_elements.json"
+const DEFAULT_SAVE_PATH: String = "res://game/data/custom_elements.json"
 const FALLBACK_SAVE_PATH: String = "user://custom_elements.json"
 
 static func get_save_path() -> String:
@@ -9,7 +9,7 @@ static func get_save_path() -> String:
 		var custom_p: String = str(ProjectSettings.get_setting("laser_editor/paths/custom_elements_path", "")).strip_edges()
 		if not custom_p.is_empty():
 			return custom_p
-	if FileAccess.file_exists(DEFAULT_SAVE_PATH) or DirAccess.dir_exists_absolute("res://Game/Data/"):
+	if FileAccess.file_exists(DEFAULT_SAVE_PATH) or DirAccess.dir_exists_absolute("res://game/data/"):
 		return DEFAULT_SAVE_PATH
 	return FALLBACK_SAVE_PATH
 
