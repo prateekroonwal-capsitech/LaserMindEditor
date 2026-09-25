@@ -8,7 +8,6 @@ signal request_restart_stage()
 signal request_load_stage(stage_num: int)
 signal request_toggle_visuals()
 signal request_quit_game()
-signal request_next_stage()
 signal object_rotated(obj: LaserObjectData)
 signal object_dragged(obj: LaserObjectData)
 signal drag_ended()
@@ -29,7 +28,7 @@ func handle_input(
 	cell_size: Vector2,
 	is_playtest_mode: bool,
 	is_transitioning: bool,
-	stage_cleared: bool
+	_stage_cleared: bool = false
 ) -> void:
 	if event is InputEventKey and event.pressed and not event.is_echo():
 		var k := event as InputEventKey
@@ -42,9 +41,6 @@ func handle_input(
 			KEY_V:
 				if is_playtest_mode:
 					request_toggle_visuals.emit()
-			KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6, KEY_7, KEY_8, KEY_9:
-				var target_num: int = k.keycode - KEY_1 + 1
-				request_load_stage.emit(target_num)
 
 	if is_transitioning:
 		return
@@ -53,13 +49,13 @@ func handle_input(
 		var mb := event as InputEventMouseButton
 		if mb.button_index == MOUSE_BUTTON_LEFT:
 			if mb.pressed:
-				_handle_press(mb.position, current_stage, grid_origin, cell_size, stage_cleared)
+				_handle_press(mb.position, current_stage, grid_origin, cell_size)
 			else:
 				_handle_release()
 	elif event is InputEventScreenTouch:
 		var st := event as InputEventScreenTouch
 		if st.pressed:
-			_handle_press(st.position, current_stage, grid_origin, cell_size, stage_cleared)
+			_handle_press(st.position, current_stage, grid_origin, cell_size)
 		else:
 			_handle_release()
 	elif event is InputEventMouseMotion and candidate_object != null:
@@ -74,12 +70,8 @@ func _handle_press(
 	current_stage: LaserStageData,
 	grid_origin: Vector2,
 	cell_size: Vector2,
-	stage_cleared: bool
+	_stage_cleared: bool = false
 ) -> void:
-	if stage_cleared:
-		request_next_stage.emit()
-		return
-
 	if current_stage == null:
 		return
 

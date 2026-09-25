@@ -1,5 +1,7 @@
 extends SceneTree
 
+const StageTransitionController = preload("res://Game/Scripts/stage_transition_controller.gd")
+
 func _init() -> void:
 
 	print("--- BEGINNING LASER MIND LEVEL EDITOR VALIDATION ---")
@@ -2895,6 +2897,185 @@ func _init() -> void:
 	assert(s34_renderer.is_traversing == true, "Renderer must continue traversing from current progress")
 	s34_renderer.free()
 	print("✓ [PASS] BeamRenderer preserves progress and avoids reset to source on object modification")
+
+	# =========================================================================
+	# SECTION 35: Continuous Multi-Stage World & Camera Navigation Validation
+	# =========================================================================
+	print("\n--- Section 35: Continuous Multi-Stage World & Camera Navigation Validation ---")
+
+	var s35_lvl := LaserLevelData.new()
+	s35_lvl.level_id = 9999
+	s35_lvl.level_number = 9999
+
+	# Stage 1 (Center)
+	var s35_st1 := LaserStageData.new()
+	s35_st1.stage_index = 1
+	s35_st1.grid_width = 6
+	s35_st1.grid_height = 6
+	var s35_src := LaserObjectData.create(LaserObjectData.ObjectType.LASER_SOURCE, Vector2i(-1, 2), 0)
+	s35_src.color = Color.RED
+	var s35_exit1 := LaserObjectData.create(LaserObjectData.ObjectType.EXIT_GATE, Vector2i(6, 2), 0)
+	s35_st1.add_object(s35_src)
+	s35_st1.add_object(s35_exit1)
+
+	# Stage 2 (Placed to the RIGHT of Stage 1)
+	var s35_st2 := LaserStageData.new()
+	s35_st2.stage_index = 2
+	s35_st2.grid_width = 6
+	s35_st2.grid_height = 6
+	s35_st2.stage_transition_direction = LaserStageData.TransitionDir.RIGHT
+	var s35_entry2 := LaserObjectData.create(LaserObjectData.ObjectType.GATE, Vector2i(-1, 2), 0)
+	var s35_mir2 := LaserObjectData.create(LaserObjectData.ObjectType.ROTATABLE_MIRROR, Vector2i(3, 2), 0)
+	var s35_exit2 := LaserObjectData.create(LaserObjectData.ObjectType.EXIT_GATE, Vector2i(3, 6), 90)
+	s35_st2.add_object(s35_entry2)
+	s35_st2.add_object(s35_mir2)
+	s35_st2.add_object(s35_exit2)
+
+	# Stage 3 (Placed DOWN from Stage 2)
+	var s35_st3 := LaserStageData.new()
+	s35_st3.stage_index = 3
+	s35_st3.grid_width = 6
+	s35_st3.grid_height = 6
+	s35_st3.stage_transition_direction = LaserStageData.TransitionDir.DOWN
+	var s35_entry3 := LaserObjectData.create(LaserObjectData.ObjectType.GATE, Vector2i(3, -1), 90)
+	var s35_goal3 := LaserObjectData.create(LaserObjectData.ObjectType.GOAL, Vector2i(3, 6), 90)
+	s35_st3.add_object(s35_entry3)
+	s35_st3.add_object(s35_goal3)
+
+	s35_lvl.stages = [s35_st1, s35_st2, s35_st3]
+
+	var s35_gameplay = load("res://Game/Scripts/GamePlay.gd").new()
+	s35_gameplay.level_data = s35_lvl
+	s35_gameplay._build_stage_world()
+	s35_gameplay._spawn_all_world_objects()
+
+	# 1. Verify all 3 stages exist with distinct, non-overlapping world origins
+	assert(s35_gameplay.stage_world_data.size() == 3, "World must contain all 3 stages")
+	var origin1: Vector2 = s35_gameplay.stage_world_data[0]["origin"]
+	var origin2: Vector2 = s35_gameplay.stage_world_data[1]["origin"]
+	var origin3: Vector2 = s35_gameplay.stage_world_data[2]["origin"]
+	assert(origin2.x > origin1.x, "Stage 2 must be positioned to the RIGHT of Stage 1")
+	assert(origin3.y > origin2.y, "Stage 3 must be positioned BELOW Stage 2")
+	print("✓ [PASS] Continuous world multi-stage layout positions (Right -> Down) verified")
+
+	# 2. Verify all stage object nodes coexist in the scene
+	assert(s35_gameplay.spawned_nodes.has(s35_mir2.id), "Stage 2 objects must be spawned in world")
+	assert(s35_gameplay.object_to_stage_idx[s35_mir2.id] == 2, "Object must be registered with Stage 2")
+	print("✓ [PASS] Multi-stage objects coexist simultaneously in world space")
+
+	# 3. Verify Camera Navigation and State Preservation
+	s35_gameplay.load_stage(1, false)
+	assert(s35_gameplay.current_stage_idx == 1, "Initial active stage must be 1")
+	assert(s35_gameplay.stage_cleared == true, "Stage 1 must be solved")
+
+	s35_gameplay.pan_camera_to_stage(2, 0.0)
+	assert(s35_gameplay.current_stage_idx == 2, "Camera pan must transition active stage to Stage 2")
+	assert(s35_gameplay.spawned_nodes.has(s35_mir2.id), "Stage 2 nodes must remain alive and interactable")
+
+	# 4. Modify mirror in Stage 2 -> recalculates continuous world without destroying Stage 1
+	s35_mir2.rotation_deg = 90
+	s35_gameplay._on_object_modified(s35_mir2)
+	assert(s35_gameplay.stage_world_data.size() == 3, "All stages must remain in world data")
+	assert(s35_gameplay.spawned_nodes.has(s35_mir2.id), "Stage 2 object must remain active")
+	print("✓ [PASS] Camera navigation and multi-stage object interaction verified")
+
+	s35_gameplay.free()
+
+	# =========================================================================
+	# SECTION 36: Laser-Synchronized Camera & Stage Progression Validation
+	# =========================================================================
+	print("\n--- Section 36: Laser-Synchronized Camera & Stage Progression Validation ---")
+
+	var s36_lvl := LaserLevelData.new()
+	s36_lvl.level_id = 9998
+	s36_lvl.level_number = 9998
+
+	# Stage 1
+	var s36_st1 := LaserStageData.new()
+	s36_st1.stage_index = 1
+	s36_st1.grid_width = 6
+	s36_st1.grid_height = 6
+	var s36_src := LaserObjectData.create(LaserObjectData.ObjectType.LASER_SOURCE, Vector2i(-1, 2), 0)
+	var s36_exit1 := LaserObjectData.create(LaserObjectData.ObjectType.EXIT_GATE, Vector2i(6, 2), 0)
+	s36_st1.add_object(s36_src)
+	s36_st1.add_object(s36_exit1)
+
+	# Stage 2
+	var s36_st2 := LaserStageData.new()
+	s36_st2.stage_index = 2
+	s36_st2.grid_width = 6
+	s36_st2.grid_height = 6
+	s36_st2.stage_transition_direction = LaserStageData.TransitionDir.RIGHT
+	var s36_entry2 := LaserObjectData.create(LaserObjectData.ObjectType.GATE, Vector2i(-1, 2), 0)
+	var s36_mir2 := LaserObjectData.create(LaserObjectData.ObjectType.FIXED_MIRROR, Vector2i(2, 2), 0)
+	var s36_goal2 := LaserObjectData.create(LaserObjectData.ObjectType.GOAL, Vector2i(2, 6), 90)
+	s36_st2.add_object(s36_entry2)
+	s36_st2.add_object(s36_mir2)
+	s36_st2.add_object(s36_goal2)
+
+	s36_lvl.stages = [s36_st1, s36_st2]
+
+	var s36_gp := GamePlay.new()
+	s36_gp.level_data = s36_lvl
+	s36_gp._init_components()
+	s36_gp.load_stage(1, true)
+
+	# 1. Verify stage_transition_intervals calculated with exact world distances
+	assert(s36_gp.stage_transition_intervals.size() == 1, "Must have 1 transition interval from St1 to St2")
+	var t_info = s36_gp.stage_transition_intervals[0]
+	assert(t_info["from_stage"] == 1 and t_info["to_stage"] == 2, "Transition must connect Stage 1 -> Stage 2")
+	assert(t_info["exit_dist"] > 0.0, "Exit dist must be greater than 0")
+	assert(t_info["entry_dist"] > t_info["exit_dist"], "Entry dist must be greater than Exit dist")
+	print("✓ [PASS] Multi-stage continuous path distance chaining verified")
+
+	# 2. Test Player Input Isolation: Tapping / clicking MUST NEVER advance stage
+	s36_gp.stage_cleared = true
+	var dummy_touch := InputEventMouseButton.new()
+	dummy_touch.button_index = MOUSE_BUTTON_LEFT
+	dummy_touch.pressed = true
+	dummy_touch.position = Vector2(500, 500)
+	s36_gp._input_controller.handle_input(dummy_touch, s36_st1, s36_gp.grid_origin, s36_gp.cell_size, false, false, true)
+	assert(s36_gp.current_stage_idx == 1, "Tapping/clicking MUST NOT advance the stage manually!")
+	print("✓ [PASS] User input cannot manually advance or change stage")
+
+	# 3. Test Centralized StageTransitionController Tuning
+	var s36_tc: StageTransitionController = s36_gp._transition_controller
+	s36_tc.transition_start_distance = 200.0
+	assert(s36_tc.transition_start_distance == 200.0, "StageTransitionController must allow tuning transition_start_distance")
+	var lead_in_d: float = t_info["exit_dist"] - 100.0
+	var state_lead: Dictionary = s36_tc.compute_state(lead_in_d, t_info["from_cam_pos"])
+	assert(state_lead["is_transitioning"] == true, "Camera must begin transition during lead-in distance before Exit Gate")
+	assert(state_lead["camera_pos"].x > t_info["from_cam_pos"].x, "Camera must start moving ahead of Exit Gate")
+	print("✓ [PASS] Centralized distance-based transition tuning verified")
+
+	# 4. Verify Camera follows Laser during traversal
+	# At d < exit_dist - 200: Camera is at Stage 1 focus
+	s36_tc.transition_start_distance = 0.0 # Strict exit-boundary trigger
+	var state_before = s36_tc.compute_state(t_info["exit_dist"] * 0.5, t_info["from_cam_pos"])
+	assert(state_before["camera_pos"] == t_info["from_cam_pos"], "Camera must remain at Stage 1 before exit is reached")
+
+	# At midway across transition gap: Camera is interpolated between Stage 1 and Stage 2
+	s36_gp.beam_renderer.traversed_distance = (t_info["exit_dist"] + t_info["entry_dist"]) * 0.5
+	s36_gp._process(0.016)
+	assert(s36_gp.camera.position.x > t_info["from_cam_pos"].x, "Camera must move toward Stage 2 during transition")
+	assert(s36_gp.camera.position.x < t_info["to_cam_pos"].x, "Camera must smoothly be between Stage 1 and Stage 2")
+	assert(s36_gp.traversal_state == GamePlay.TraversalState.TRANSITIONING, "TraversalState must be TRANSITIONING")
+	print("✓ [PASS] Laser traversal dynamically drives Camera position in real time")
+
+	# At d >= entry_dist: Camera is fully at Stage 2 focus and active stage is 2
+	s36_gp.beam_renderer.traversed_distance = t_info["entry_dist"] + 50.0
+	s36_gp._process(0.016)
+	assert(s36_gp.camera.position == t_info["to_cam_pos"], "Camera must arrive at Stage 2 when laser enters Stage 2")
+	assert(s36_gp.current_stage_idx == 2, "Current stage index must update to 2 when laser enters Stage 2")
+	print("✓ [PASS] Zero-delay seamless entry into Stage 2 verified")
+
+	# 5. Verify Final Target triggers Level Complete
+	assert(s36_gp.is_final_goal_reached == true, "Final goal must be marked reached on final stage")
+	s36_gp.beam_renderer.force_complete_traversal()
+	assert(s36_gp.traversal_state == GamePlay.TraversalState.COMPLETED, "Level completion must only trigger after final target")
+	print("✓ [PASS] Final Target is the authoritative win condition")
+
+	s36_gp.free()
 
 	print("\n--- ALL ACTUAL GAME RUNTIME & LEVELEDITORPLUGIN RULES 100% OPERATIONAL! ---")
 	print("--- ALL TESTS PASSED WITH 100% COMPLIANCE! ---")

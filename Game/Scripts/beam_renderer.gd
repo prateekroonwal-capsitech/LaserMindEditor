@@ -94,12 +94,21 @@ func _rebuild_cached_points() -> void:
 	total_path_distance = 0.0
 	var prev_chain_dist: float = 0.0
 	for seg in segments:
-		var p1 := BoardLayoutManager.grid_to_world(seg.get("start", Vector2i.ZERO), grid_origin, cell_size)
-		var p2 := BoardLayoutManager.grid_to_world(seg.get("end", Vector2i.ZERO), grid_origin, cell_size)
+		var p1: Vector2
+		var p2: Vector2
+		if seg.has("p1") and seg.has("p2"):
+			p1 = seg["p1"]
+			p2 = seg["p2"]
+		else:
+			p1 = BoardLayoutManager.grid_to_world(seg.get("start", Vector2i.ZERO), grid_origin, cell_size)
+			p2 = BoardLayoutManager.grid_to_world(seg.get("end", Vector2i.ZERO), grid_origin, cell_size)
 		var d: float = p1.distance_to(p2)
 		var s_dist: float
 		var e_dist: float
-		if seg.has("start_dist") and seg.has("end_dist"):
+		if seg.has("world_start_dist") and seg.has("world_end_dist"):
+			s_dist = float(seg.get("world_start_dist", 0.0))
+			e_dist = float(seg.get("world_end_dist", 0.0))
+		elif seg.has("start_dist") and seg.has("end_dist"):
 			s_dist = float(seg.get("start_dist", 0.0)) * cell_size.x
 			e_dist = float(seg.get("end_dist", 0.0)) * cell_size.x
 		else:
